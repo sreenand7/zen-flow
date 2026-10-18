@@ -1,0 +1,92 @@
+/* ===========================================================================
+ * Zen Flow — content styles
+ * ---------------------------------------------------------------------------
+ * Loaded by Sine as a USER_SHEET in content documents (Sine's userContent
+ * equivalent). This file only styles the new-tab clock that
+ * js/zen-flow.uc.mjs injects into `about:newtab` / `about:home`; it does not
+ * touch ordinary web pages.
+ *
+ * Everything is `!important` on purpose: user-origin normal declarations lose
+ * to author declarations, and these pages ship their own stylesheets.
+ * =========================================================================== */
+
+/* --- Tunable knobs -------------------------------------------------------- */
+:root {
+  --zen-flow-clock-color: var(--newtab-text-primary-color, light-dark(#15141a, #fbfbfe));
+  --zen-flow-clock-font: system-ui, "Segoe UI", roboto, sans-serif;
+  --zen-flow-clock-gap: 28px;
+}
+
+#zen-flow-clock {
+  /* Fixed, not absolute: getBoundingClientRect() of the search box is in
+     viewport coordinates, so a fixed panel lands exactly where we measured. */
+  position: fixed !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  /* JS sets `left` / `top`; the transform anchors the panel by its
+     bottom-centre so the clock always sits directly above the search box. */
+  transform: translate(-50%, -100%) !important;
+  z-index: 5 !important;
+  pointer-events: none !important;
+  text-align: center !important;
+  font-family: var(--zen-flow-clock-font) !important;
+  color: var(--zen-flow-clock-color) !important;
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.32),
+    0 8px 34px rgba(0, 0, 0, 0.26) !important;
+  opacity: 1 !important;
+  transition: opacity 200ms ease-out !important;
+}
+
+#zen-flow-clock .zen-flow-date {
+  display: block !important;
+  font-size: clamp(13px, 1.4vh, 17px) !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.06em !important;
+  opacity: 0.88 !important;
+  margin-block-end: 8px !important;
+}
+
+#zen-flow-clock .zen-flow-time {
+  display: block !important;
+  font-size: clamp(46px, 9.5vh, 96px) !important;
+  font-weight: 600 !important;
+  line-height: 1.02 !important;
+  letter-spacing: -0.025em !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+#zen-flow-clock .zen-flow-message {
+  display: block !important;
+  font-size: clamp(14px, 1.9vh, 20px) !important;
+  font-weight: 400 !important;
+  opacity: 0.92 !important;
+  margin-block-start: 12px !important;
+}
+
+/* ---------------------------------------------------------------------------
+ * Accessibility: colour-scheme awareness and reduced motion.
+ * ------------------------------------------------------------------------ */
+
+@media (prefers-color-scheme: dark) {
+  #zen-flow-clock {
+    color: var(--newtab-text-primary-color, #fbfbfe) !important;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  #zen-flow-clock {
+    color: var(--newtab-text-primary-color, #15141a) !important;
+    text-shadow:
+      0 1px 2px rgba(255, 255, 255, 0.5),
+      0 8px 30px rgba(255, 255, 255, 0.35) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #zen-flow-clock {
+    transition: none !important;
+  }
+}

@@ -1,0 +1,318 @@
+/* ===========================================================================
+ * Zen Flow — browser chrome styles
+ * ---------------------------------------------------------------------------
+ * Loaded by Sine into every browser window as a USER_SHEET (the same cascade
+ * layer that classic `userChrome.css` uses).
+ *
+ * USER_SHEET declarations lose to author declarations for normal (non
+ * `!important`) rules, so `!important` is used where we override Zen itself.
+ *
+ * Every selector that depends on Zen/Firefox internals is marked with
+ * [INTERNAL] and listed in the README's "Zen internals" section.
+ * =========================================================================== */
+
+/* --- Tunable knobs ---------------------------------------------------------
+ * Change these instead of editing the rules below.
+ * ------------------------------------------------------------------------ */
+:root {
+  /* Feature 1 — top loading bar (~36% of the window width, 3px tall) */
+  --zen-flow-bar-width: clamp(160px, 36vw, 640px);
+  --zen-flow-bar-height: 3px;
+  /* Distance from the very top edge of the window. Raise it if the bar
+     overlaps a top toolbar you care about. */
+  --zen-flow-bar-top: 0px;
+  --zen-flow-bar-color-a: #4aa8ff;
+  --zen-flow-bar-color-b: #6fe3ff;
+  --zen-flow-bar-color-c: #a8f4ff;
+  --zen-flow-bar-sheen: rgba(255, 255, 255, 0.85);
+  --zen-flow-bar-glow: rgba(90, 190, 255, 0.35);
+
+  /* Feature 2 — loading tab ring */
+  --zen-flow-ring-width: 1.5px;
+  /* Fallback angle so the ring still renders (statically) on builds that do
+     not support `@property`. */
+  --zen-flow-ring-angle: 0deg;
+  --zen-flow-tab-color-a: #4aa8ff;
+  --zen-flow-tab-color-b: #6fe3ff;
+  --zen-flow-ring-duration: 1.8s;
+
+  /* Feature 3 — blur behind the URL bar popup */
+  --zen-flow-blur-radius: 4px;
+
+  /* Feature 4 — clock typography (chrome overlay). The in-page copy of these
+     knobs lives at the top of userContent.css. */
+  --zen-flow-clock-color: currentColor;
+  --zen-flow-clock-font: system-ui, "Segoe UI", roboto, sans-serif;
+
+  /* --- Internal: how animation is allowed to behave -----------------------
+   * Both of these are redefined below when the user asks for reduced motion,
+   * either through the operating system or through Zen's own
+   * `gReduceMotion` / `ui.prefersReducedMotion` state. Keeping the decision in
+   * two custom properties means the animation rules themselves never have to
+   * be written twice.
+   * --------------------------------------------------------------------- */
+  --zen-flow-motion: running;
+  --zen-flow-fade: 170ms;
+}
+
+/* Reduced motion, however the user expresses it. `zen-flow-reduce-motion` is
+   set by js/zen-flow.uc.mjs from `window.gReduceMotion` (which also follows
+   the `ui.prefersReducedMotion` preference), so this covers the case where the
+   OS setting and the browser preference disagree — and still works when the
+   userscript is not running, thanks to the media query. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --zen-flow-motion: paused;
+    --zen-flow-fade: 0ms;
+  }
+}
+
+:root[zen-flow-reduce-motion="true"] {
+  --zen-flow-motion: paused;
+  --zen-flow-fade: 0ms;
+}
+
+/* ===========================================================================
+ * Feature 1 — slim, centred top loading bar
+ * The element is created by js/zen-flow.uc.mjs and is always positioned at
+ * document level, so it can never affect toolbar or content layout.
+ * =========================================================================== */
+
+#zen-flow-top-bar {
+  position: fixed !important;
+  top: var(--zen-flow-bar-top) !important;
+  left: 50% !important;
+  display: block !important;
+  width: var(--zen-flow-bar-width) !important;
+  height: var(--zen-flow-bar-height) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 0 3px 3px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  /* Never steal clicks from the toolbar or the page. */
+  pointer-events: none !important;
+  transform: translateX(-50%) !important;
+  /* The gradient is the bar itself, so the bar still looks right even when
+     all animation is switched off. */
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--zen-flow-bar-color-a) 20%,
+    var(--zen-flow-bar-color-b) 46%,
+    var(--zen-flow-bar-color-c) 60%,
+    transparent 100%
+  ) !important;
+  box-shadow: 0 0 8px var(--zen-flow-bar-glow) !important;
+  /* z-index above browser UI; harmless because it is 3px tall and
+     pointer-events:none. */
+  z-index: 2147483647 !important;
+  opacity: 0 !important;
+  transition: opacity var(--zen-flow-fade) ease-out !important;
+}
+
+#zen-flow-top-bar[data-active="true"] {
+  opacity: 1 !important;
+}
+
+/* A soft highlight that sweeps across the bar while a page is loading. With
+   reduced motion it simply stays parked off the left edge, leaving the static
+   gradient above as the (still perfectly visible) loading cue. */
+#zen-flow-top-bar::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+  border-radius: inherit !important;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--zen-flow-bar-sheen) 50%,
+    transparent 100%
+  ) !important;
+  animation: zen-flow-bar-sweep 1100ms cubic-bezier(0.45, 0, 0.25, 1) infinite !important;
+  animation-play-state: var(--zen-flow-motion) !important;
+}
+
+@keyframes zen-flow-bar-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ===========================================================================
+ * Feature 2 — animated ring around tabs that are loading
+ * js/zen-flow.uc.mjs adds `.zen-flow-loading` to every tab that currently has
+ * the `busy` or `progress` attribute (the same state Zen's own loading
+ * indicator reads), and removes it again when the tab finishes.
+ * =========================================================================== */
+
+/* Registered custom property so the conic gradient angle can be animated.
+   Firefox 128+ supports @property; older builds simply show a static ring. */
+@property --zen-flow-ring-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.tabbrowser-tab.zen-flow-loading .tab-background {
+  position: relative !important;
+}
+
+.tabbrowser-tab.zen-flow-loading .tab-background::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+  box-sizing: border-box !important;
+  padding: var(--zen-flow-ring-width) !important;
+  border-radius: inherit !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+  background: conic-gradient(
+    from var(--zen-flow-ring-angle),
+    transparent 0deg,
+    var(--zen-flow-tab-color-a) 55deg,
+    var(--zen-flow-tab-color-b) 145deg,
+    transparent 205deg,
+    transparent 360deg
+  ) border-box !important;
+  /* Punch the middle out of the gradient so only a thin ring remains. */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0) !important;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0) !important;
+  -webkit-mask-composite: xor !important;
+  mask-composite: exclude !important;
+  filter: drop-shadow(
+    0 0 3px color-mix(in srgb, var(--zen-flow-tab-color-b) 60%, transparent)
+  ) !important;
+  animation: zen-flow-ring-spin var(--zen-flow-ring-duration) linear infinite !important;
+  animation-play-state: var(--zen-flow-motion) !important;
+}
+
+@keyframes zen-flow-ring-spin {
+  to {
+    --zen-flow-ring-angle: 360deg;
+  }
+}
+
+/* ===========================================================================
+ * Feature 3 — blur the interface behind the URL bar / new-tab search popup
+ *
+ * Fully CSS driven: `:has()` is used so no JS is needed to track the popup
+ * state. The URL bar lives in the toolbox, NOT in `#tabbrowser-tabbox`, so the
+ * popup, its input, text and icons stay perfectly sharp while the page behind
+ * it is blurred.
+ *
+ * [INTERNAL] `#urlbar[breakout-extend]` and `#tabbrowser-tabbox` are Firefox /
+ * Zen internals. `:root[zen-flow-blur="true"]` is set by the userscript from
+ * the `zen-flow.blur-behind-popup` preference.
+ * =========================================================================== */
+
+:root[zen-flow-blur="true"] #tabbrowser-tabbox {
+  transition: filter 180ms ease-out !important;
+}
+
+:root[zen-flow-blur="true"]:has(#urlbar[breakout-extend]) #tabbrowser-tabbox {
+  filter: blur(var(--zen-flow-blur-radius)) !important;
+}
+
+/* ===========================================================================
+ * Feature 4 (surface A) — clock overlay for Zen's URL-bar new-tab popup
+ *
+ * Zen replaces the classic new-tab page with an expanded URL bar
+ * (`zen.urlbar.replace-newtab`). This overlay is a chrome element positioned
+ * just above that popup, so the date / clock / message appear above the search
+ * field without touching the page or the popup's own layout.
+ *
+ * The element is positioned by JS via `left` / `top`; the transform anchors it
+ * by its bottom-centre. `pointer-events: none` keeps keyboard navigation,
+ * focus and typing completely unaffected.
+ * =========================================================================== */
+
+#zen-flow-clock-overlay {
+  position: fixed !important;
+  left: 0 !important;
+  top: 0 !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  transform: translate(-50%, -100%) !important;
+  z-index: 2147483646 !important;
+  pointer-events: none !important;
+  text-align: center !important;
+  font-family: var(--zen-flow-clock-font) !important;
+  color: var(--zen-flow-clock-color) !important;
+  text-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.35),
+    0 6px 28px rgba(0, 0, 0, 0.28) !important;
+  opacity: 0 !important;
+  transition: opacity var(--zen-flow-fade) ease-out !important;
+}
+
+#zen-flow-clock-overlay[data-visible="true"] {
+  opacity: 1 !important;
+}
+
+#zen-flow-clock-overlay .zen-flow-date {
+  display: block !important;
+  font-size: clamp(12px, 0.95vw, 16px) !important;
+  font-weight: 400 !important;
+  letter-spacing: 0.06em !important;
+  opacity: 0.88 !important;
+  margin-block-end: 6px !important;
+}
+
+#zen-flow-clock-overlay .zen-flow-time {
+  display: block !important;
+  font-size: clamp(38px, 4.6vw, 72px) !important;
+  font-weight: 600 !important;
+  line-height: 1.05 !important;
+  letter-spacing: -0.02em !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+#zen-flow-clock-overlay .zen-flow-message {
+  display: block !important;
+  font-size: clamp(13px, 1.1vw, 18px) !important;
+  font-weight: 400 !important;
+  opacity: 0.92 !important;
+  margin-block-start: 10px !important;
+}
+
+/* ===========================================================================
+ * Optional: hide Zen's own loading indicator so the window never shows two
+ * indicators at once. Zen's `#zen-loading-progress-bar` is off by default and
+ * only rendered when `zen.view.enable-loading-indicator` is enabled.
+ * Controlled by the `zen-flow.hide-native-loading-bar` preference.
+ * =========================================================================== */
+
+:root[zen-flow-hide-native="true"] #zen-loading-progress-bar {
+  display: none !important;
+}
+
+/* ===========================================================================
+ * Accessibility
+ * ---------------------------------------------------------------------------
+ * Reduced motion is handled further up, by redefining `--zen-flow-motion` and
+ * `--zen-flow-fade`, so there is nothing to duplicate here. The visual cues
+ * stay: the bar keeps its full gradient, the ring keeps its gradient arc, and
+ * neither moves.
+ *
+ * Very low-contrast/blurred interfaces are a real accessibility problem, so
+ * honour the standard `prefers-reduced-transparency` query as well.
+ * =========================================================================== */
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[zen-flow-blur="true"]:has(#urlbar[breakout-extend]) #tabbrowser-tabbox {
+    filter: none !important;
+  }
+}

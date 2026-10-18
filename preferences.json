@@ -1,0 +1,57 @@
+[
+  {
+    "type": "text",
+    "label": "**New tab clock**",
+    "margin": "4px 0 10px 0",
+    "size": "15px"
+  },
+  {
+    "type": "string",
+    "property": "zen-flow.message",
+    "label": "Message shown under the clock. This is the one place to change it.",
+    "placeholder": "Make today count.",
+    "defaultValue": "Make today count."
+  },
+  {
+    "type": "checkbox",
+    "property": "zen-flow.show-clock",
+    "label": "Show the date, clock and message on new tabs",
+    "defaultValue": true
+  },
+  {
+    "type": "text",
+    "label": "**Loading animations**",
+    "margin": "16px 0 10px 0",
+    "size": "15px"
+  },
+  {
+    "type": "checkbox",
+    "property": "zen-flow.show-top-bar",
+    "label": "Show the slim top loading bar while the current tab loads",
+    "defaultValue": true
+  },
+  {
+    "type": "checkbox",
+    "property": "zen-flow.animate-loading-tabs",
+    "label": "Animate the outline of tabs that are loading",
+    "defaultValue": true
+  },
+  {
+    "type": "checkbox",
+    "property": "zen-flow.hide-native-loading-bar",
+    "label": "Hide Zen's built-in loading bar while this mod is active (avoids two indicators)",
+    "defaultValue": true
+  },
+  {
+    "type": "text",
+    "label": "**URL bar**",
+    "margin": "16px 0 10px 0",
+    "size": "15px"
+  },
+  {
+    "type": "checkbox",
+    "property": "zen-flow.blur-behind-popup",
+    "label": "Blur the page behind the URL bar popup (blur-behind-urlbar)",
+    "defaultValue": true
+  }
+]

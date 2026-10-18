@@ -1,0 +1,12 @@
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build artefacts
+*.zip
+dist/
+
+# Local testing helpers
+tmp/
+sandbox/

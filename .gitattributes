@@ -1,0 +1,9 @@
+# Sine downloads this repository as a zip and unpacks it straight into the
+# browser profile, so the bytes people install should not depend on the
+# platform that pushed them. Normalise every text file to LF.
+* text=auto eol=lf
+
+# Binary-ish assets, if a preview image is ever added to theme.json.
+*.png binary
+*.jpg binary
+*.webp binary

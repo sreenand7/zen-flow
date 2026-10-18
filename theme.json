@@ -1,0 +1,36 @@
+{
+  "id": "zen-flow",
+  "name": "Zen Flow",
+  "description": "Subtle loading animations, an animated outline on loading tabs, a blurred backdrop behind the URL bar, and a live date/clock/message on new tabs.",
+  "author": "sreenand7",
+  "version": "1.0.0",
+  "homepage": "https://github.com/sreenand7/zen-flow",
+  "readme": "https://raw.githubusercontent.com/sreenand7/zen-flow/main/README.md",
+  "style": {
+    "chrome": "userChrome.css",
+    "content": "userContent.css"
+  },
+  "scripts": {
+    "js/zen-flow.uc.mjs": {
+      "name": "Zen Flow core",
+      "description": "Drives the top loading bar, the loading-tab class and the new-tab clock.",
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 10
+    }
+  },
+  "preferences": "preferences.json",
+  "supportsUnload": true,
+  "tags": [
+    "chrome",
+    "content",
+    "animation",
+    "loading",
+    "newtab",
+    "zen"
+  ],
+  "fork": [
+    "zen"
+  ]
+}
