@@ -3,7 +3,7 @@
   "name": "Zen Flow",
   "description": "A slim gradient loading bar, a pulsing outline on loading tabs, a blurred backdrop behind the URL bar, and a live date, clock and message on new tabs.",
   "author": "sreenand7",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "style": {
     "chrome": "userChrome.css",
     "content": "userContent.css"

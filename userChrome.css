@@ -162,9 +162,19 @@
     var(--zen-flow-bar-color-c) 78%,
     transparent 100%
   ) !important;
-  /* Parked just outside the left edge while the bar is inactive. */
-  transform: translateX(-100%) !important;
-  opacity: 0 !important;
+  /* IMPORTANT: `transform` and `opacity` are animated by the keyframes below
+     and must NOT be marked `!important`. In the CSS cascade, important author
+     declarations outrank @keyframes values, so an `!important` here would pin
+     the segment off-screen at zero opacity and leave the whole bar invisible.
+     Nothing else in the browser targets this element, so no `!important` is
+     needed for these two properties.
+     The visible parked state doubles as a fallback: if the animation ever
+     fails to run, the bar still shows a static gradient segment instead of
+     nothing. The track's own `opacity: 0 !important` hides it while idle, and
+     transitions (unlike animations) do override `!important`, so the fade
+     in/out is unaffected. */
+  transform: translateX(0);
+  opacity: 1;
 }
 
 /* The animation exists only while the bar is active. Leaving an infinite
@@ -269,7 +279,10 @@
   filter: drop-shadow(
     0 0 3px color-mix(in srgb, var(--zen-flow-tab-color-b) 60%, transparent)
   ) !important;
-  opacity: 1 !important;
+  /* No `!important` here: the pulse mode animates opacity, and important
+     declarations outrank @keyframes values (see the note on the top bar
+     segment). This keeps the ring at full strength by default. */
+  opacity: 1;
   /* No animation unless a mode explicitly turns one on. */
   animation: none !important;
 }
