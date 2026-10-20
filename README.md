@@ -1,378 +1,214 @@
 # Zen Flow
 
-A small, self-contained [Sine](https://github.com/CosmoCreeper/Sine) mod for
-[Zen Browser](https://zen-browser.app) that adds four subtle quality-of-life
-touches.
+A small [Sine](https://github.com/CosmoCreeper/Sine) mod for [Zen Browser](https://zen-browser.app) that reworks the browser's loading indicators and gives new tabs a live date, clock and message.
 
-| # | Feature | Where |
-|---|---------|-------|
-| 1 | Slim, centred loading bar at the top edge of the window | `userChrome.css` + userscript |
-| 2 | Animated outline around each tab that is loading | `userChrome.css` + userscript |
-| 3 | Blur behind the URL bar / new-tab search popup | `userChrome.css` only |
-| 4 | Date, live clock and a fixed message on new tabs | `userContent.css` + userscript |
+- **Slim loading bar** — a centred 3 px gradient strip that appears while the current tab is navigating, then fades out.
+- **Loading-tab outline** — a thin gradient ring around every tab that is actually loading, on any number of tabs at once.
+- **Blurred URL-bar backdrop** — the page behind the open URL-bar popup is blurred, while the popup, its text, icons and input stay sharp.
+- **New-tab clock** — weekday, date, a large live clock and a short message on the new-tab page, with the search bar below.
 
-The message defaults to **“Make today count.”** and is changeable from Sine's
-settings UI (see [Configuration](#configuration)).
+All four are driven by the browser's own loading state, so redirects, failed loads and fast back-to-back navigation cannot leave an indicator stuck on. Nothing polls, and every animation stops when there is nothing to show.
 
----
+## Requirements
 
-## 1. Requirements
+- **Zen Browser**, reasonably recent (Firefox 128 or newer).
+- **[Sine](https://github.com/CosmoCreeper/Sine)**, installed and working.
+- **“Allow external/unsafe JavaScript”** enabled in Sine's settings.
 
-- **Zen Browser** — a reasonably recent build (Firefox 128 or newer for the
-  animatable `@property` angle used by the tab ring; older builds still work but
-  the ring does not rotate).
-- **[Sine](https://github.com/CosmoCreeper/Sine)** installed
-  (`Zen Flow` is a Sine mod; it is not a Zen "native" mod, so Zen's own
-  *Settings → Mods* page cannot install it).
-- A **public GitHub repository** whose default branch is `main`.
-- Sine's **“Allow external/unsafe JavaScript”** setting enabled
-  (see step 3 below). This is mandatory: Sine only executes JavaScript from
-  non-marketplace mods when that toggle is on.
+That last point is not optional. Sine only runs scripts from mods outside its marketplace when that toggle is on; without it Zen Flow's styles still load, but the loading bar, tab outline and clock do nothing.
 
----
+## Installation
 
-## 2. Repository layout
+1. Open Sine and go to **Mods → Add mod**.
+2. Enter this repository as `owner/zen-flow`, where `owner` is the GitHub account hosting this repository. The repository must be public.
+   - If the default branch is not `main`, use `owner/zen-flow/tree/<branch>` instead.
+3. In **Sine → Settings**, enable **Allow external/unsafe JavaScript**.
+4. Restart Zen.
 
-This repository root **is** the mod folder. Sine downloads the repository zip
-and unpacks it directly as the mod directory, so nothing may be nested under an
-extra folder:
+The mod is installed as `<profile>/chrome/sine-mods/zen-flow/`.
+
+### Updating
+
+Sine reads the version from `theme.json` and offers an update when the repository changes. If a newly added setting does not appear in the settings panel, remove the mod and add it again — Sine keeps a copy of `preferences.json` from the installed version.
+
+## Settings
+
+Everything is configurable from **Sine → Mods → Zen Flow → Settings**. The same preferences can be edited directly in `about:config`.
+
+### New tab clock
+
+| Setting | Pref | Default | Notes |
+|---|---|---|---|
+| Show the clock | `zen-flow.show-clock` | on | Date, clock and message on new tabs. |
+| Message | `zen-flow.message` | `Make today count.` | The text under the clock. |
+| Clock colour | `zen-flow.clock-color` | automatic | Any CSS colour. Empty follows the browser theme. |
+
+### Top loading bar
+
+| Setting | Pref | Default | Notes |
+|---|---|---|---|
+| Show the bar | `zen-flow.show-top-bar` | on | |
+| Distance from the top | `zen-flow.bar-offset` | `3 px` | `0`–`12 px`, in 2–4 px steps. |
+| Gradient stops | `zen-flow.bar-color-a`, `-b`, `-c` | `#4aa8ff`, `#6fe3ff`, `#a8f4ff` | Left, middle and right. |
+| Glow | `zen-flow.bar-glow` | `rgba(90, 190, 255, 0.35)` | Any CSS colour, including `transparent`. |
+
+### Loading tab outline
+
+| Setting | Pref | Default | Notes |
+|---|---|---|---|
+| Outline loading tabs | `zen-flow.animate-loading-tabs` | on | |
+| Animation | `zen-flow.tab-animation` | `pulse` | `pulse`, `rotate` or `static`. |
+| Outline colours | `zen-flow.tab-color-a`, `-b` | `#4aa8ff`, `#6fe3ff` | Start and end of the gradient arc. |
+
+`pulse` animates opacity only, which Firefox can run on the compositor. `rotate` animates the gradient angle and is noticeably heavier on the main thread, especially with several tabs loading at once. `static` keeps the gradient but stops all motion.
+
+### URL bar
+
+| Setting | Pref | Default | Notes |
+|---|---|---|---|
+| Blur the page behind the popup | `zen-flow.blur-behind-popup` | on | Disabled automatically when the system asks for reduced transparency. |
+| Hide Zen's loading bar | `zen-flow.hide-native-loading-bar` | on | Avoids showing two indicators at once. |
+
+### Advanced
+
+| Setting | Pref | Default | Notes |
+|---|---|---|---|
+| Debug logging | `zen-flow.debug` | off | Prints clock and overlay decisions to the Browser Console. See [Troubleshooting](#troubleshooting). |
+
+### Colours
+
+Every colour field accepts any value Firefox understands: `#4aa8ff`, `rgb(74 168 255)`, `oklch(0.7 0.15 230)`, `transparent`, and so on. Values are validated with `CSS.supports("color", …)` before use; an invalid value is ignored (with a console warning) and the built-in default stays in place, so a typo cannot break the gradient.
+
+## Customisation
+
+The settings cover colours, position and animation style. Anything else lives in `userChrome.css` under the `Tunable knobs` block:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `--zen-flow-bar-width` | `clamp(160px, 36vw, 640px)` | Bar length. |
+| `--zen-flow-bar-height` | `3px` | Bar thickness. |
+| `--zen-flow-ring-width` | `1.5px` | Thickness of the tab outline. |
+| `--zen-flow-ring-pulse-duration` | `2.2s` | Speed of the pulse. |
+| `--zen-flow-ring-duration` | `1.8s` | Speed of the rotating variant. |
+| `--zen-flow-blur-radius` | `4px` | Blur behind the URL bar. |
+| `--zen-flow-clock-font` | system UI stack | Font used by both clocks. |
+
+Values set by the settings UI are written as inline custom properties on `:root`, so they take precedence over anything in the stylesheet.
+
+## Troubleshooting
+
+### The styles work but the bar, outline and clock do nothing
+
+Sine's **Allow external/unsafe JavaScript** setting is off. Turn it on in **Sine → Settings** and restart Zen.
+
+### The clock does not appear on a new tab
+
+Zen Flow shows the clock when Zen reports one of its new-tab states: a URL-bar new-tab session (`#urlbar[zen-newtab]`) or the persistent empty tab (`tab[zen-empty-tab]` / `:root[zen-has-empty-tab]`). A third-party new-tab extension that replaces these will not get a clock.
+
+To see what the mod decided:
+
+1. Open `about:config` and set `zen-flow.debug` to `true`.
+2. Open the Browser Console with `Ctrl+Shift+J`.
+3. Open a new tab and look for a line beginning `[Zen Flow] clock`.
+
+The logged object reports `zenNewTab`, `emptyTab`, `expanded`, `welcome` and the chosen `anchor`. If `anchor` is `null`, none of Zen's markers were present on that build; please open an issue with the line.
+
+### The clock is hard to read
+
+Set **Clock colour** to something that contrasts with your wallpaper, or leave it empty to follow the theme. The clock is drawn above the page, so its readability depends on the background image more than on the browser theme.
+
+### Two loading indicators appear
+
+Turn on **Hide Zen's built-in loading bar**, or disable Zen's own indicator with `zen.view.enable-loading-indicator` in `about:config`.
+
+### The loading bar sits too close to the top (or overlaps a toolbar)
+
+Raise **Distance from the top** to `4`, `6` or `8 px`. The bar never intercepts clicks, so it only affects what you see.
+
+### A colour setting is ignored
+
+The value is not a valid CSS colour. Check the Browser Console for `[Zen Flow] ignoring invalid colour…` and use a format such as `#4aa8ff` or `rgb(74 168 255)`.
+
+### Zen feels slower while pages load
+
+Switch **Outline animation** to `static`, and turn off **Blur the page behind the popup** if the URL bar feels heavy on integrated graphics. The `pulse` animation is already the low-cost option; `rotate` is deliberately marked as heavier.
+
+### Settings changes have no effect
+
+Sine reads `preferences.json` from the installed copy. Update or reinstall the mod, then reopen the settings panel.
+
+## Compatibility
+
+- **Zen Browser** only. Zen Flow is built for Zen's chrome, not plain Firefox, and declares `"fork": ["zen"]` in its manifest.
+- **Firefox 128+**, for `light-dark()` and registered custom properties.
+- Verified against the Zen `dev` source: the tab `busy`/`progress` attributes, `zen-newtab`, `zen-empty-tab`, `zen-has-empty-tab`, `zen-welcome-stage`, `#zen-loading-progress-bar`, `#tabbrowser-tabbox` and `window.gReduceMotion`. The exact selectors and where each one comes from are listed under [Zen internals](#zen-internals).
+
+### Known limitations
+
+- On builds where the real `about:newtab` page runs in a separate privileged process, `browser.contentDocument` is not reachable. Zen Flow then draws the clock as a chrome overlay positioned over the content area instead of inside the page. It looks the same, but it is not part of the page's DOM.
+- Zen's new-tab implementation has changed between releases. The clock follows the markers available on the running build and falls back to a centred overlay when it can find the empty tab but not the expanded URL bar.
+- Sine cannot unload background scripts, so this mod deliberately ships a single chrome script and cleans up after itself through `window.addUnloadListener`. That is what makes `"supportsUnload": true` accurate.
+- The mod does not modify any browser preferences other than the ones it owns under the `zen-flow.` prefix.
+
+## How it works
+
+- **Loading state** comes from the tab's own `busy` and `progress` attributes, the same test Zen's `ZenProgressBar` uses. A single `MutationObserver` watches those two attributes (plus `zen-empty-tab`) on the tab strip; `TabSelect`, `TabOpen` and `TabClose` cover structural changes. There is no timer and no progress API, which is why a failed load or a redirect cannot leave the bar stuck.
+- **Visuals** are entirely CSS. The script only publishes state: `zen-flow-loading` on tabs, `data-active` on the bar, and `zen-flow-*` attributes / custom properties on `:root`.
+- **The clock** has one timer, armed for the next minute boundary and stopped completely while no clock is on screen. It is injected into the new-tab page when that document is reachable, and rendered as a chrome overlay otherwise.
+- **Teardown** removes every element, listener, observer, timer and inline property the script created, so disabling the mod restores the window without a restart.
+
+## Development
+
+### Repository layout
+
+The repository root **is** the mod folder. Sine downloads the repository zip and unpacks it directly as the mod directory, so nothing may be nested under an extra folder.
 
 ```
-zen-flow/                    <- repository root = mod folder
-├── theme.json               <- mod manifest (Sine reads this first)
-├── preferences.json         <- settings shown in Sine's UI
-├── userChrome.css           <- browser-UI styles  (loaded as a user sheet)
-├── userContent.css          <- page styles        (loaded as a user sheet)
+.
+├── theme.json          # Sine manifest (id, version, script mapping)
+├── preferences.json    # Settings shown in Sine
+├── userChrome.css      # Browser chrome styles (features 1–3, clock overlay)
+├── userContent.css     # New-tab page clock
 ├── js/
-│   └── zen-flow.uc.mjs      <- the only JavaScript file
+│   └── zen-flow.uc.mjs # The only script; runs in browser.xhtml
 ├── README.md
 ├── LICENSE
-└── .gitignore
+├── .gitignore
+└── .gitattributes      # Forces LF line endings in the downloaded zip
 ```
 
-The `scripts` key in `theme.json` is the file's **real path relative to this
-root** (`js/zen-flow.uc.mjs`). Renaming or moving the file requires updating
-that key to match, or Sine will fail to load it.
+`theme.json` maps exactly one script, `js/zen-flow.uc.mjs`, and restricts it to `chrome://browser/content/browser.xhtml`. There is no `.sys.mjs` background module on purpose: Sine cannot unload those, which would make the mod's unload support a lie.
 
----
+### Checks
 
-## 3. Installation
+```sh
+node --check js/zen-flow.uc.mjs
+node -e "JSON.parse(require('fs').readFileSync('theme.json')); JSON.parse(require('fs').readFileSync('preferences.json'))"
+```
 
-### 3.1 With the Sine interface (recommended)
+### Zen internals
 
-1. Make sure this repository is pushed to GitHub and is **public**.
-2. Open Zen, go to Zen's **Settings → Sine** (Sine injects its own section).
-3. Open Sine's mod installation field and enter your repository in
-   `username/repo` format, for example:
+<details>
+<summary>Selectors and APIs this mod depends on</summary>
 
-   ```
-   yourname/zen-flow
-   ```
-
-   To install a branch other than `main`, use `username/repo/tree/branch`.
-
-4. Sine downloads `theme.json`, fetches the repository zip and unpacks it into
-   `<profile>/chrome/sine-mods/zen-flow/`.
-5. Enable **Zen Flow** in Sine's mod list.
-6. Open Sine's settings and turn on **“Allow external/unsafe JavaScript”**
-   (`sine.allow-unsafe-js`). Without this, Sine deliberately skips the
-   `js/zen-flow.uc.mjs` script and only the CSS features will work.
-7. **Restart Zen.** A restart is required after enabling JavaScript mods.
-
-> Why the extra toggle exists: Sine only auto-runs JavaScript from mods it
-> considers verified (marketplace origin). Anything installed directly from a
-> GitHub repository has to be explicitly trusted by you. That is a security
-> feature, not a bug — read the script before enabling it.
-
-### 3.2 Enabling the mod's JavaScript manually (without Sine)
-
-If you would rather not use Sine, this mod also works with the classic
-`userChromeJS` layout: copy `userChrome.css` into
-`<profile>/chrome/userChrome.css`, `userContent.css` into
-`<profile>/chrome/userContent.css`, and `js/zen-flow.uc.mjs` into your
-`userChromeJS` script loader's directory. This path is not maintained or tested
-by this project — Sine is the supported installation method.
-
-### 3.3 Uninstalling
-
-Remove the mod from Sine (or disable it). `js/zen-flow.uc.mjs` registers a
-cleanup hook with Sine, so disabling the mod removes the top bar, the clock, the
-loading-tab classes, the observers and the timer **without** a restart. If your
-build does not run unload hooks, restart Zen to clear everything.
-
----
-
-## 4. Configuration
-
-Open **Sine → Zen Flow → settings**. Every option is stored as a normal
-`about:config` preference and takes effect immediately — no restart needed.
-
-| Preference | Type | Default | Meaning |
-|---|---|---|---|
-| `zen-flow.message` | string | `Make today count.` | **The message under the clock. This is the one place to change it.** |
-| `zen-flow.show-clock` | boolean | `true` | Show the date / clock / message on new tabs |
-| `zen-flow.show-top-bar` | boolean | `true` | Slim top loading bar |
-| `zen-flow.animate-loading-tabs` | boolean | `true` | Animated outline on loading tabs |
-| `zen-flow.hide-native-loading-bar` | boolean | `true` | Hide Zen's own `#zen-loading-progress-bar` so you never see two indicators |
-| `zen-flow.blur-behind-popup` | boolean | `true` | Blur the page behind the URL bar popup |
-| `zen-flow.debug` | boolean | `false` | Extra logging to the Browser Console (advanced troubleshooting; not exposed in the settings UI) |
-
-### 4.1 Showing the clock on real new tabs
-
-Zen replaces the classic new-tab page with an expanded URL bar
-(`zen.urlbar.replace-newtab`, default `true`). Zen Flow handles both cases:
-
-- **Default Zen behaviour** — the clock is drawn as a chrome overlay directly
-  **above the URL bar popup** that Zen shows on a new tab, so the search field
-  stays below the text. Nothing else changes.
-- **Classic new-tab page** — if you set `zen.urlbar.replace-newtab` to `false`
-  in `about:config`, Zen shows the real `about:newtab` page and the clock is
-  injected into that page, sitting just above its search box.
-
-Either way the clock only appears on a new tab: it is never injected into
-ordinary websites.
-
-### 4.2 Visual tuning
-
-Every colour, size and radius is a CSS custom property at the top of
-`userChrome.css` (browser UI) and `userContent.css` (new-tab page). Notable
-knobs:
-
-| Variable | Default | File |
+| Internal | Used for | Where it comes from |
 |---|---|---|
-| `--zen-flow-bar-width` | `clamp(160px, 36vw, 640px)` | `userChrome.css` |
-| `--zen-flow-bar-height` | `3px` | `userChrome.css` |
-| `--zen-flow-bar-top` | `0px` | `userChrome.css` (raise it if the bar overlaps a top toolbar) |
-| `--zen-flow-blur-radius` | `4px` | `userChrome.css` |
-| `--zen-flow-ring-width` | `1.5px` | `userChrome.css` |
-| `--zen-flow-clock-color` | `currentColor` / new-tab text colour | both |
+| `tab[busy]`, `tab[progress]` | “Is this tab loading?” | The same test as `ZenProgressBar.sys.mjs`. |
+| `tab[zen-empty-tab]` | Zen's persistent empty tab | `ZenFolders.mjs`, `Tabbrowser.sys.mjs` patch |
+| `:root[zen-has-empty-tab="true"]` | Same, mirrored to the window | `ZenSpaceManager.#changeToEmptyTab()` |
+| `#urlbar[zen-newtab]` | URL-bar new-tab session | `ZenUrlbarController.handleNewTab()` / `handleUrlbarClose()` |
+| `#urlbar[breakout-extend]` | Expanded URL-bar popup | Firefox `UrlbarView` |
+| `window.gURLBar.view.isOpen` | Results panel actually open | Firefox `UrlbarView` |
+| `:root[zen-welcome-stage]` | Zen's first-run screen | `ZenWelcome.mjs` |
+| `#zen-loading-progress-bar` | Zen's own loading bar | `zen-single-components.css` |
+| `#tabbrowser-tabbox`, `#tabbrowser-tabpanels` | The web content area | Firefox |
+| `window.gReduceMotion` | Reduced-motion state | Zen, backed by `ui.prefersReducedMotion` |
+| `.tab-background::after` | Tab outline | Free: Zen only uses `::before` in `vertical-tabs.css`, and Firefox uses neither. |
 
----
+`window.addUnloadListener(fn)` is Sine's unload hook; it must be called with a single argument so Sine can derive the script path from the caller.
 
-## 5. Troubleshooting
+</details>
 
-**Nothing happens at all.**
-Sine skipped the JavaScript. Open Sine's settings and enable **“Allow
-external/unsafe JavaScript”**, then restart Zen. Only CSS features run without
-it.
+## License
 
-**The top loading bar never appears.**
-It deliberately mirrors the *selected* tab's real loading state — the same
-`busy` / `progress` attributes Zen's own indicator reads. Very fast loads may
-finish before the bar's 170 ms fade-in completes. Check `zen-flow.show-top-bar`
-is enabled.
-
-**Two loading indicators.**
-Zen's own `#zen-loading-progress-bar` is enabled
-(`zen.view.enable-loading-indicator`). Leave
-`zen-flow.hide-native-loading-bar` enabled, or turn Zen's own indicator off.
-
-**No clock on new tabs.**
-- Confirm `zen-flow.show-clock` is on.
-- With Zen's default `zen.urlbar.replace-newtab = true`, the clock appears as an
-  overlay above the URL bar popup. On very short windows there may be no room
-  above the popup; the clock then re-anchors over the empty content area.
-- If you use `about:newtab` and the clock is unstyled, Sine's content
-  stylesheet is not reaching `about:newtab` on your build. The layout still
-  works (positioning is set from JavaScript); report the Zen version if the
-  typography matters to you.
-
-**The clock text is hard to read on a bright wallpaper.**
-Override `--zen-flow-clock-color` in `userContent.css`.
-
-**Blur does not appear.**
-- Check `zen-flow.blur-behind-popup` is enabled.
-- `prefers-reduced-transparency: reduce` disables it on purpose.
-- The blur targets `#tabbrowser-tabbox`, a Zen/Firefox internal container. If a
-  Zen update renames it, update that selector in `userChrome.css` (it is marked
-  `[INTERNAL]`).
-
-**Something is broken and I want to see logs.**
-Set `zen-flow.debug` to `true` in `about:config`, then open
-`Ctrl` + `Shift` + `J` (Browser Console) and look for `[Zen Flow]`.
-
-**How do I fully reset the mod?**
-Disable it in Sine, or delete
-`<profile>/chrome/sine-mods/zen-flow/` and remove the entry from
-`<profile>/chrome/sine-mods/mods.json` while Zen is closed.
-
----
-
-## 6. Zen internals this mod depends on
-
-These are not public APIs. Each is used for a specific reason, and each is
-isolated so it can be swapped in one place.
-
-| Selector / attribute | Used for | File |
-|---|---|---|
-| `tab[busy]`, `tab[progress]` | The real loading state of a tab. Zen's own `ZenProgressBar.sys.mjs` tests exactly `tab.hasAttribute("busy") \|\| tab.hasAttribute("progress")`, so redirects, failures and rapid navigation cannot leave us stuck | `js/zen-flow.uc.mjs` |
-| `#urlbar[zen-newtab]` | “The URL bar is standing in for a new-tab page.” Set in `ZenUrlbarController.handleNewTab()` and cleared in `handleUrlbarClose()`. This is the primary trigger for the new-tab clock | `js/zen-flow.uc.mjs` |
-| `tab[zen-empty-tab]` | “This tab is Zen's persistent empty/new tab.” Read from the selected tab; used as the fallback trigger | `js/zen-flow.uc.mjs` |
-| `:root[zen-has-empty-tab="true"]` | Zen's mirror of the above on the window root (set in `ZenSpaceManager` → `#changeToEmptyTab`, refreshed on `TabSelect` and on location change) | `js/zen-flow.uc.mjs` |
-| `#urlbar[breakout-extend]` | “The URL bar popup is open” — drives the blur, and anchors the overlay clock | both |
-| `#tabbrowser-tabbox` / `#tabbrowser-tabpanels` | The blurred background layer / overlay anchor | both |
-| `.tab-background` | The element the loading ring is drawn on | `userChrome.css` |
-| `#zen-loading-progress-bar` | Zen's built-in loading indicator, which we optionally hide. Zen already gates it behind `zen.view.enable-loading-indicator` (off by default) | `userChrome.css` |
-| `.search-wrapper`, `#newtab-search-text` | Locating the new-tab search box; a 40 %-of-viewport fallback is used if none match | `js/zen-flow.uc.mjs` |
-
-The tab ring is drawn with `.tab-background::after`, deliberately: Zen's tab
-stylesheets only ever use `.tab-background::before` (two rules, both scoped to
-`[visuallyselected]`), and Firefox's own tab styles use neither, so `::after` is
-the one pseudo-element that cannot collide with existing styling.
-
-Accessibility is respected throughout. Reduced motion is honoured through the
-standard `prefers-reduced-motion: reduce` media query **and** through Zen's own
-`gReduceMotion` state — which also follows Firefox's `ui.prefersReducedMotion`
-preference, so a user who overrides the OS setting is still respected. When
-motion is reduced, nothing moves: the loading bar keeps its full gradient, the
-tab ring keeps its gradient arc, and both keep their cues without animation.
-`prefers-reduced-transparency: reduce` disables the blur.
-
----
-
-## 7. Pushing this to GitHub
-
-From the project directory:
-
-```bash
-git init
-git add .
-git commit -m "feat: initial Zen Flow mod"
-git branch -M main
-
-# Create the repository and push in one step (requires the GitHub CLI):
-gh repo create yourname/zen-flow --public --source . --push
-```
-
-Or manually:
-
-```bash
-git remote add origin https://github.com/yourname/zen-flow.git
-git push -u origin main
-```
-
-Then install it in Sine by entering `yourname/zen-flow` in the install field.
-
-### Updating an installed mod
-
-Sine reads `theme.json` from the **default branch** every time it checks for
-updates and re-downloads the repository zip. Bump `"version"` in `theme.json`,
-commit and push — then run the update from Sine's mod list.
-
----
-
-## 8. Verification status
-
-Honesty matters more than a green checklist, so here is exactly what has been
-verified and what has not.
-
-### Verified against real source code
-
-Everything below was read from the actual upstream sources, not from memory or
-guesswork.
-
-**Sine** (the installer and loader):
-
-- The manifest schema, the `findFile` lookup by filename, the required `scripts`
-  key format, the `supportsUnload` field and the valid preference types all come
-  from Sine's own `src/core/manager.sys.mjs`, `src/core/utils.sys.mjs` and
-  `src/services/module_loader.mjs`.
-- `window.addUnloadListener(callback)` must be called with a single argument so
-  Sine can derive the script's `chrome://` path from the call site — which is
-  what this mod does.
-
-**Zen Browser** (branch `dev`):
-
-- `tab[busy]` / `tab[progress]` is exactly the test `ZenProgressBar.sys.mjs`
-  uses to decide whether a tab is loading.
-- `#urlbar[zen-newtab]` is set by `ZenUrlbarController.handleNewTab()` and
-  cleared by `handleUrlbarClose()` — the authoritative “the URL bar is being
-  used as the new-tab page” state.
-- `tab[zen-empty-tab]` marks the persistent empty/new tab, and
-  `ZenSpaceManager.#changeToEmptyTab()` mirrors it onto the window root as
-  `zen-has-empty-tab`, refreshing on `TabSelect` and on location change.
-- `#tabbrowser-tabbox` and `#urlbar[breakout-extend]` are both real and used by
-  Zen's own stylesheets.
-- `zen.urlbar.replace-newtab` really defaults to `true`
-  (`ZenVerticalTabsManager` → `_canReplaceNewTab`).
-- `#zen-loading-progress-bar` exists and is already hidden by Zen itself unless
-  `zen.view.enable-loading-indicator` is enabled.
-- `.tab-background` is never styled through `::after` by Zen or by Firefox, so
-  the loading ring cannot collide with existing styling — this is the reason
-  `::after` was chosen over `::before`.
-- Zen's reduced-motion state is exposed as `window.gReduceMotion`, which is what
-  the userscript bridges to `:root[zen-flow-reduce-motion="true"]`.
-
-### Verified offline by script
-
-A 90-check validation script was run against this repository. It:
-
-- parses both JSON files and rejects unknown manifest keys;
-- simulates Sine's `findFile()` on the exact zip layout Sine produces (the
-  repository root renamed to the mod id) and confirms `userChrome.css`,
-  `userContent.css` and `preferences.json` each resolve unambiguously;
-- simulates Sine's `getScripts()` glob → regex conversion and confirms the
-  script's `include` matches `chrome://browser/content/browser.xhtml` and does
-  **not** match a web page;
-- confirms the `scripts` key maps to a file that really exists;
-- parses `js/zen-flow.uc.mjs` as an ES module with `node --check`;
-- checks that every `:root` flag attribute the CSS matches by literal value is
-  written with that literal value, and that class/attribute names agree between
-  the JavaScript and both stylesheets;
-- checks that every observer, preference observer, listener and element has a
-  teardown path, and that no `setInterval` is used anywhere.
-
-All 90 checks pass.
-
-### Not verified — needs a running Zen install
-
-These are the things no amount of reading source code can settle:
-
-- How the four features actually **look** and feel.
-- Whether `browser.contentDocument` is reachable for `about:newtab` on your
-  build. If it is not (likely, since the page can run in a separate privileged
-  process), the mod automatically uses the chrome overlay instead — worth
-  eyeballing first.
-- Whether Sine's content stylesheet reaches `about:newtab` with its typography.
-  Layout is set from JavaScript either way, so the clock stays correctly
-  positioned even if the typography does not arrive.
-- Multi-tab, rapid-navigation, failed-load and popup open/close behaviour, and
-  the absence of console errors or leaks.
-
-Set `zen-flow.debug` to `true` and watch the Browser Console (`Ctrl` +
-`Shift` + `J`) for `[Zen Flow]` messages while you work through this list:
-
-1. **Install** via `yourname/zen-flow`, enable the mod, enable
-   “Allow external/unsafe JavaScript”, restart Zen.
-2. **Feature 1** — load a heavy page. The centred bar should fade in, sweep,
-   and fade out. Then test a redirect (`http://` → `https://`), a page that
-   fails to load, and Ctrl+R spam: the bar must never get stuck on.
-3. **Feature 2** — open several tabs that are slow to load at once. Only the
-   loading tabs should show a ring; tabs that are merely selected, hovered or
-   audible must not.
-4. **Feature 3** — focus the URL bar on a busy page. The page behind should
-   blur while the popup, its text, icons and input stay perfectly sharp. Press
-   `Esc`: the blur must disappear immediately. Then tab through and type to
-   confirm focus, keyboard navigation and search are unaffected.
-5. **Feature 4** — open a new tab: date, clock and message should appear above
-   the search field, with the clock ticking from one minute to the next. Type
-   into the search field — the clock must stay put and the popup must stay
-   usable. Then visit `https://example.com` and confirm the clock is gone;
-   check a second ordinary site too, and confirm there is never a duplicate
-   clock. Change `zen-flow.message` in Sine's settings and confirm the new text
-   appears immediately, without a restart.
-6. **Cleanup** — disable the mod (not just the prefs). The bar, ring, blur and
-   clock must all disappear with no restart, and the Browser Console must show
-   no errors.
-7. **Reduced motion** — turn on your OS's reduce-motion setting (or set
-   `ui.prefersReducedMotion` to `2` in `about:config`) and reload. The bar and
-   the ring should be visible but completely still.
-
-If any of these misbehave, the README sections above plus `zen-flow.debug`
-should make the cause obvious.
-
----
-
-## 9. License
-
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

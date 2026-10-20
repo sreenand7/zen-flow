@@ -1,11 +1,9 @@
 {
   "id": "zen-flow",
   "name": "Zen Flow",
-  "description": "Subtle loading animations, an animated outline on loading tabs, a blurred backdrop behind the URL bar, and a live date/clock/message on new tabs.",
+  "description": "A slim gradient loading bar, a pulsing outline on loading tabs, a blurred backdrop behind the URL bar, and a live date, clock and message on new tabs.",
   "author": "sreenand7",
-  "version": "1.0.0",
-  "homepage": "https://github.com/sreenand7/zen-flow",
-  "readme": "https://raw.githubusercontent.com/sreenand7/zen-flow/main/README.md",
+  "version": "1.1.0",
   "style": {
     "chrome": "userChrome.css",
     "content": "userContent.css"

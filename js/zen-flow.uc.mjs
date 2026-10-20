@@ -7,8 +7,9 @@
  * Responsibilities
  *   Feature 1  Drive the slim top loading bar (`#zen-flow-top-bar`).
  *   Feature 2  Tag loading tabs with `.zen-flow-loading` (animation is CSS).
- *   Feature 3  Publish `:root[zen-flow-blur]` so CSS can blur behind the
- *              URL bar popup. No other JS is involved.
+ *   Feature 3  Publish `:root[zen-flow-blur]` and
+ *              `:root[zen-flow-popup-open]` so CSS can blur the page behind
+ *              the URL bar popup.
  *   Feature 4  Inject the date / clock / message either into the real
  *              new-tab page, or into a chrome overlay above Zen's URL-bar
  *              new-tab popup.
@@ -20,6 +21,9 @@
  *     showing a stale "loading" state.
  *   - Only one clock timer exists, it is armed on the next minute boundary
  *     and it is stopped entirely while no clock is on screen.
+ *   - Nothing polls. The tab observer is limited to three attributes and does
+ *     not watch structural changes, so Zen's own tab animations and tab-group
+ *     churn never wake this script.
  *   - Everything this file creates is removed by `destroy()`, which is
  *     registered with Sine's unload hook.
  * =========================================================================== */
@@ -36,24 +40,68 @@
   const CLASS_LOADING = "zen-flow-loading";
   const ATTR_HIDE_NATIVE = "zen-flow-hide-native";
   const ATTR_BLUR = "zen-flow-blur";
+  const ATTR_POPUP = "zen-flow-popup-open";
+  const ATTR_TAB_ANIMATION = "zen-flow-tab-animation";
   const ATTR_REDUCE_MOTION = "zen-flow-reduce-motion";
 
   /* --- Preferences ------------------------------------------------------ */
   const PREF_MESSAGE = "zen-flow.message";
   const PREF_SHOW_CLOCK = "zen-flow.show-clock";
+  const PREF_CLOCK_COLOR = "zen-flow.clock-color";
   const PREF_TOP_BAR = "zen-flow.show-top-bar";
+  const PREF_BAR_OFFSET = "zen-flow.bar-offset";
+  const PREF_BAR_COLOR_A = "zen-flow.bar-color-a";
+  const PREF_BAR_COLOR_B = "zen-flow.bar-color-b";
+  const PREF_BAR_COLOR_C = "zen-flow.bar-color-c";
+  const PREF_BAR_GLOW = "zen-flow.bar-glow";
   const PREF_ANIMATE_TABS = "zen-flow.animate-loading-tabs";
+  const PREF_TAB_ANIMATION = "zen-flow.tab-animation";
+  const PREF_TAB_COLOR_A = "zen-flow.tab-color-a";
+  const PREF_TAB_COLOR_B = "zen-flow.tab-color-b";
   const PREF_HIDE_NATIVE = "zen-flow.hide-native-loading-bar";
   const PREF_BLUR = "zen-flow.blur-behind-popup";
   const PREF_DEBUG = "zen-flow.debug";
 
   const DEFAULT_MESSAGE = "Make today count.";
 
+  /* Must match the fallbacks in userChrome.css and preferences.json. */
+  const DEFAULT_BAR_OFFSET = 3;
+  const MAX_BAR_OFFSET = 48;
+  const TAB_ANIMATIONS = new Set(["pulse", "rotate", "static"]);
+
+  /* Preference -> custom property. The property names are the public
+     customisation surface documented in the README. */
+  const COLOR_PREFS = [
+    [PREF_BAR_COLOR_A, "--zen-flow-bar-color-a"],
+    [PREF_BAR_COLOR_B, "--zen-flow-bar-color-b"],
+    [PREF_BAR_COLOR_C, "--zen-flow-bar-color-c"],
+    [PREF_BAR_GLOW, "--zen-flow-bar-glow"],
+    [PREF_TAB_COLOR_A, "--zen-flow-tab-color-a"],
+    [PREF_TAB_COLOR_B, "--zen-flow-tab-color-b"],
+  ];
+
+  /* Every custom property this script may write inline on `:root`. Used by
+     `destroy()` so unloading leaves the window exactly as it was found. */
+  const ROOT_STYLE_PROPERTIES = [
+    ...COLOR_PREFS.map(([, property]) => property),
+    "--zen-flow-bar-top",
+    "--zen-flow-clock-color",
+  ];
+
   const ALL_PREFS = [
     PREF_MESSAGE,
     PREF_SHOW_CLOCK,
+    PREF_CLOCK_COLOR,
     PREF_TOP_BAR,
+    PREF_BAR_OFFSET,
+    PREF_BAR_COLOR_A,
+    PREF_BAR_COLOR_B,
+    PREF_BAR_COLOR_C,
+    PREF_BAR_GLOW,
     PREF_ANIMATE_TABS,
+    PREF_TAB_ANIMATION,
+    PREF_TAB_COLOR_A,
+    PREF_TAB_COLOR_B,
     PREF_HIDE_NATIVE,
     PREF_BLUR,
     PREF_DEBUG,
@@ -123,10 +171,16 @@
     observers: [],
     timeouts: new Set(),
     tabSyncQueued: false,
+    positionQueued: false,
+    positionFrame: null,
     tickTimeout: null,
     prefObserver: null,
 
+    /* Last logged clock decision, so debug output does not repeat itself. */
+    lastClockLog: null,
+
     prefs: null,
+    clockColor: "",
 
     /* ====================================================================
      * Lifecycle
@@ -161,6 +215,7 @@
 
       this.readPrefs();
       this.applyPrefAttributes();
+      this.applyVisualPrefs();
 
       if (this.prefs.topBar) {
         this.createTopBar();
@@ -170,8 +225,13 @@
       this.watchClockTriggers();
       this.listen(window, "TabSelect", () => this.onTabChanged());
       this.listen(window, "TabClose", () => this.onTabChanged());
-      this.listen(window, "TabAttrModified", () => this.scheduleTabSync());
-      this.listen(window, "resize", () => this.positionClocks());
+      /* `TabOpen` catches tabs that are inserted already loading (session
+         restore, "open link in new tab"). There is deliberately no
+         `TabAttrModified` listener: the observer above already sees `busy` and
+         `progress`, and `TabAttrModified` also fires for every label, icon and
+         sound attribute, which would double the work for no benefit. */
+      this.listen(window, "TabOpen", () => this.onTabChanged());
+      this.listen(window, "resize", () => this.schedulePositionUpdate());
       this.observePrefs();
 
       this.syncTabs();
@@ -230,6 +290,12 @@
         this.tickTimeout = null;
       }
 
+      if (this.positionFrame) {
+        window.cancelAnimationFrame(this.positionFrame);
+        this.positionFrame = null;
+      }
+      this.positionQueued = false;
+
       this.removePageClock();
       this.destroyOverlay();
 
@@ -246,7 +312,17 @@
 
       this.documentElement?.removeAttribute(ATTR_HIDE_NATIVE);
       this.documentElement?.removeAttribute(ATTR_BLUR);
+      this.documentElement?.removeAttribute(ATTR_POPUP);
+      this.documentElement?.removeAttribute(ATTR_TAB_ANIMATION);
       this.documentElement?.removeAttribute(ATTR_REDUCE_MOTION);
+
+      try {
+        for (const property of ROOT_STYLE_PROPERTIES) {
+          this.documentElement?.style.removeProperty(property);
+        }
+      } catch (error) {
+        /* window is tearing down */
+      }
 
       if (window.__zenFlow === this) {
         delete window.__zenFlow;
@@ -277,8 +353,17 @@
       this.prefs = {
         message: prefString(PREF_MESSAGE, DEFAULT_MESSAGE) || DEFAULT_MESSAGE,
         showClock: prefBool(PREF_SHOW_CLOCK, true),
+        clockColor: prefString(PREF_CLOCK_COLOR, "").trim(),
         topBar: prefBool(PREF_TOP_BAR, true),
+        barOffset: prefString(PREF_BAR_OFFSET, String(DEFAULT_BAR_OFFSET)),
+        barColorA: prefString(PREF_BAR_COLOR_A, "").trim(),
+        barColorB: prefString(PREF_BAR_COLOR_B, "").trim(),
+        barColorC: prefString(PREF_BAR_COLOR_C, "").trim(),
+        barGlow: prefString(PREF_BAR_GLOW, "").trim(),
         animateTabs: prefBool(PREF_ANIMATE_TABS, true),
+        tabAnimation: prefString(PREF_TAB_ANIMATION, "pulse").trim(),
+        tabColorA: prefString(PREF_TAB_COLOR_A, "").trim(),
+        tabColorB: prefString(PREF_TAB_COLOR_B, "").trim(),
         hideNative: prefBool(PREF_HIDE_NATIVE, true),
         blur: prefBool(PREF_BLUR, true),
       };
@@ -323,6 +408,107 @@
       }
     },
 
+    /**
+     * Applies the *value* preferences (colours, bar offset, tab animation) as
+     * custom properties and attributes on `:root`. The stylesheets keep the
+     * defaults; this only overrides what the user actually set, and removing a
+     * value silently restores the stylesheet default.
+     */
+    applyVisualPrefs() {
+      const root = this.documentElement;
+      if (!root || !this.prefs) {
+        return;
+      }
+
+      const colors = [
+        ["--zen-flow-bar-color-a", this.prefs.barColorA],
+        ["--zen-flow-bar-color-b", this.prefs.barColorB],
+        ["--zen-flow-bar-color-c", this.prefs.barColorC],
+        ["--zen-flow-bar-glow", this.prefs.barGlow],
+        ["--zen-flow-tab-color-a", this.prefs.tabColorA],
+        ["--zen-flow-tab-color-b", this.prefs.tabColorB],
+      ];
+
+      for (const [property, value] of colors) {
+        if (!value) {
+          root.style.removeProperty(property);
+          continue;
+        }
+        if (this.isColor(value)) {
+          root.style.setProperty(property, value);
+        } else {
+          root.style.removeProperty(property);
+          this.warn(`ignoring invalid colour for ${property}: ${value}`);
+        }
+      }
+
+      const offset = Number.parseInt(this.prefs.barOffset, 10);
+      const clamped = Number.isFinite(offset)
+        ? Math.min(MAX_BAR_OFFSET, Math.max(0, offset))
+        : DEFAULT_BAR_OFFSET;
+      root.style.setProperty("--zen-flow-bar-top", `${clamped}px`);
+
+      const animation = TAB_ANIMATIONS.has(this.prefs.tabAnimation)
+        ? this.prefs.tabAnimation
+        : "pulse";
+      if (root.getAttribute(ATTR_TAB_ANIMATION) !== animation) {
+        root.setAttribute(ATTR_TAB_ANIMATION, animation);
+      }
+
+      this.applyClockColor();
+    },
+
+    /** True when `value` is something the CSS engine accepts as a colour. */
+    isColor(value) {
+      try {
+        return typeof CSS !== "undefined" && typeof CSS.supports === "function"
+          ? CSS.supports("color", value)
+          : true;
+      } catch (error) {
+        return false;
+      }
+    },
+
+    /**
+     * The clock colour lives on `:root` for the chrome overlay, and is copied
+     * onto the injected panel for the real new-tab page, where userContent.css
+     * reads it from the panel itself (an inline value beats the sheet's
+     * `:root` fallback).
+     */
+    applyClockColor() {
+      const root = this.documentElement;
+      if (!root) {
+        return;
+      }
+
+      const value = this.prefs?.clockColor ?? "";
+      if (value && this.isColor(value)) {
+        this.clockColor = value;
+        root.style.setProperty("--zen-flow-clock-color", value);
+      } else {
+        this.clockColor = "";
+        root.style.removeProperty("--zen-flow-clock-color");
+        if (value) {
+          this.warn(`ignoring invalid clock colour: ${value}`);
+        }
+      }
+
+      this.applyPageClockColor();
+    },
+
+    /** Mirrors the clock colour onto the in-page clock, if it exists. */
+    applyPageClockColor() {
+      const panel = this.pageClock?.panel;
+      if (!panel) {
+        return;
+      }
+      if (this.clockColor) {
+        panel.style.setProperty("--zen-flow-clock-color", this.clockColor);
+      } else {
+        panel.style.removeProperty("--zen-flow-clock-color");
+      }
+    },
+
     observePrefs() {
       this.prefObserver = {
         observe: (subject, topic, data) => {
@@ -352,6 +538,7 @@
 
       this.readPrefs();
       this.applyPrefAttributes();
+      this.applyVisualPrefs();
 
       if (this.prefs.topBar) {
         if (!this.topBar) {
@@ -399,10 +586,24 @@
       });
       this.observers.push(rootObserver);
 
-      /* The URL bar popup opening and closing. */
+      /* The URL bar popup opening and closing. A single observer drives both
+         the clock anchor and the Feature 3 blur flag. */
       const urlbar = this.document.getElementById("urlbar");
       if (urlbar) {
-        const urlbarObserver = new MutationObserver(() => this.resolveClock());
+        const syncUrlbarState = () => {
+          /* Mirror the expanded state. Writing the attribute only when it
+             changes avoids a needless style invalidation on every open/close
+             and on every unrelated attribute we observe. */
+          const popupOpen = urlbar.hasAttribute("breakout-extend")
+            ? "true"
+            : "false";
+          if (this.documentElement.getAttribute(ATTR_POPUP) !== popupOpen) {
+            this.documentElement.setAttribute(ATTR_POPUP, popupOpen);
+          }
+          this.resolveClock();
+        };
+
+        const urlbarObserver = new MutationObserver(syncUrlbarState);
         urlbarObserver.observe(urlbar, {
           attributes: true,
           attributeFilter: [
@@ -413,6 +614,7 @@
           ],
         });
         this.observers.push(urlbarObserver);
+        syncUrlbarState();
       } else {
         this.warn(
           "#urlbar was not found, so the new-tab clock cannot follow the URL bar popup"
@@ -420,8 +622,9 @@
       }
 
       /* A page finishing its load can turn a still-parsing new-tab document
-         into one we are allowed to write into. */
-      this.listen(window, "pageshow", () => this.resolveClock());
+         into one we are allowed to write into. `pageshow` does not reach the
+         chrome window on its own, so it is captured on the tab browser. */
+      this.listen(this.gBrowser, "pageshow", () => this.resolveClock(), true);
     },
 
     createTopBar() {
@@ -467,14 +670,17 @@
          loading ones (which Firefox updates repeatedly while a page loads) are
          coalesced; a change to `zen-empty-tab` re-resolves the clock straight
          away instead, because that is what decides whether the clock shows. */
+      /* Only attributes are observed. `childList` on the tab strip meant that
+         every DOM change Zen makes (tab groups, drag and drop, labels,
+         animations) woke this callback; `TabOpen` / `TabClose` already cover
+         structural changes. `attributeFilter` keeps the remaining traffic to
+         the three attributes this script actually reads. */
       const observer = new MutationObserver((records) => {
         let loadingChanged = false;
         let emptyTabChanged = false;
 
         for (const record of records) {
-          if (record.type !== "attributes") {
-            loadingChanged = true;
-          } else if (record.attributeName === "zen-empty-tab") {
+          if (record.attributeName === "zen-empty-tab") {
             emptyTabChanged = true;
           } else {
             loadingChanged = true;
@@ -491,7 +697,6 @@
 
       observer.observe(scope, {
         subtree: true,
-        childList: true,
         attributes: true,
         attributeFilter: ["busy", "progress", "zen-empty-tab"],
       });
@@ -532,17 +737,16 @@
         return;
       }
 
-      let tabs = [];
-      try {
-        tabs = Array.from(this.gBrowser.tabs ?? []);
-      } catch (error) {
-        tabs = [];
-      }
-
       const animate = this.prefs?.animateTabs ?? true;
-      for (const tab of tabs) {
-        const loading = animate && this.isTabLoading(tab);
-        tab.classList.toggle(CLASS_LOADING, loading);
+      try {
+        const tabs = this.gBrowser.tabs ?? [];
+        for (let index = 0; index < tabs.length; index++) {
+          const tab = tabs[index];
+          const loading = animate && this.isTabLoading(tab);
+          tab.classList.toggle(CLASS_LOADING, loading);
+        }
+      } catch (error) {
+        /* window is tearing down */
       }
 
       const selected = this.gBrowser.selectedTab;
@@ -577,23 +781,31 @@
         const doc = this.contentDocumentFor(browser);
         if (doc) {
           this.showPageClock(browser, doc);
-          this.hideOverlay();
-        } else {
-          /* The new-tab page runs in a separate privileged process in most
-             builds, which makes `contentDocument` unavailable. Fall back to a
-             chrome overlay positioned over the empty content area. */
-          this.removePageClock();
-          this.showOverlay("content");
         }
+
+        /* Normally the page clock is connected by now. If the document was
+           still parsing, or `contentDocument` pointed at a preloaded document
+           that was about to be replaced, fall back to the chrome overlay
+           rather than showing nothing at all. */
+        if (this.pageClock?.panel?.isConnected) {
+          this.log("clock surface: in-page");
+          this.hideOverlay();
+          this.scheduleTick();
+          return;
+        }
+
+        this.removePageClock();
+        this.log("clock surface: chrome overlay (contentDocument unavailable)");
+        this.showOverlay("content");
         this.scheduleTick();
         return;
       }
 
       this.removePageClock();
 
-      /* Surface B: Zen's new-tab popup. Zen's own flow always opens the URL bar
-         expanded, so that is the preferred anchor; if it is collapsed we float
-         the clock over the content area rather than losing it. */
+      /* Surface B: Zen's new-tab popup. The URL bar is the preferred anchor;
+         Zen's persistent empty tab can also be shown centred when the URL bar
+         is collapsed. */
       const anchor = this.newTabClockAnchor();
       if (anchor) {
         this.showOverlay(anchor);
@@ -626,43 +838,43 @@
     },
 
     /**
-     * [INTERNAL] Is the URL bar currently acting as Zen's new-tab page?
+     * [INTERNAL] Reads the markers Zen uses for "the URL bar is currently the
+     * new-tab page".
      *
-     * Zen's `ZenUrlbarController.handleNewTab()` puts `zen-newtab` on the URL
-     * bar, then opens it in breakout mode; `handleUrlbarClose()` removes it
-     * again. `breakout-extend` is Firefox's own flag for the expanded URL bar
-     * panel. Those two together are the authoritative "the new-tab popup is
-     * open" state, and they are checked first.
+     *   `zen-newtab`      set by `ZenUrlbarController.handleNewTab()`, removed
+     *                     in `handleUrlbarClose()`.
+     *   `breakout-extend` Firefox's own "expanded URL bar panel" flag.
+     *   `zen-empty-tab`   Zen's persistent empty tab (the real new-tab page at
+     *                     startup), mirrored onto `:root` as
+     *                     `zen-has-empty-tab` by `ZenSpaceManager`.
      *
-     * As a fallback we accept Zen's *empty tab* — the persistent placeholder
-     * tab that every space and folder keeps, marked `zen-empty-tab` on the tab
-     * itself and mirrored onto the window root as `zen-has-empty-tab` by
-     * `ZenSpaceManager` — with the URL bar expanded, which is how the empty tab
-     * looks on startup.
+     * `window.gURLBar.view.isOpen` is checked as well: it is the actual state
+     * of the results panel, and it catches builds where the panel is open
+     * before `breakout-extend` lands.
      */
-    isZenNewTabPopup() {
+    readNewTabState() {
       const urlbar = this.document.getElementById("urlbar");
-      if (!urlbar) {
-        return false;
-      }
-
-      const expanded =
-        urlbar.hasAttribute("breakout-extend") ||
-        urlbar.hasAttribute("open") ||
-        urlbar.getAttribute("open") === "true";
-      if (!expanded) {
-        return false;
-      }
-
-      if (urlbar.hasAttribute("zen-newtab")) {
-        return true;
-      }
-
       const selected = this.gBrowser?.selectedTab;
-      return (
-        selected?.hasAttribute("zen-empty-tab") === true ||
-        this.documentElement?.getAttribute("zen-has-empty-tab") === "true"
-      );
+      const root = this.documentElement;
+
+      let viewOpen = false;
+      try {
+        viewOpen = window.gURLBar?.view?.isOpen === true;
+      } catch (error) {
+        viewOpen = false;
+      }
+
+      return {
+        zenNewTab: urlbar?.hasAttribute("zen-newtab") === true,
+        expanded:
+          viewOpen ||
+          urlbar?.hasAttribute("breakout-extend") === true ||
+          urlbar?.hasAttribute("open") === true,
+        emptyTab:
+          selected?.hasAttribute("zen-empty-tab") === true ||
+          root?.getAttribute("zen-has-empty-tab") === "true",
+        welcome: root?.hasAttribute("zen-welcome-stage") === true,
+      };
     },
 
     /**
@@ -670,26 +882,52 @@
      *
      * @returns {"urlbar"|"content"|null} `"urlbar"` anchors the clock just above
      *   the expanded URL bar popup (Zen's normal new-tab layout);
-     *   `"content"` floats it over the empty content area, which is what is
-     *   left when the empty tab is selected but the URL bar is not expanded.
+     *   `"content"` floats it over the empty content area, which is what the
+     *   empty tab shows when the URL bar is not expanded.
      */
     newTabClockAnchor() {
+      const state = this.readNewTabState();
+      const anchor = this.resolveNewTabAnchor(state);
+      this.logClockState(state, anchor);
+      return anchor;
+    },
+
+    resolveNewTabAnchor({ welcome, zenNewTab, expanded, emptyTab }) {
       /* Zen draws its first-run welcome screen over everything; stay out of the
          way of it (Zen's own new-tab code does the same check). */
-      if (this.documentElement?.hasAttribute("zen-welcome-stage")) {
+      if (welcome) {
         return null;
       }
 
-      const selected = this.gBrowser?.selectedTab;
-      const emptyTab =
-        selected?.hasAttribute("zen-empty-tab") === true ||
-        this.documentElement?.getAttribute("zen-has-empty-tab") === "true";
-
-      if (this.isZenNewTabPopup()) {
-        return "urlbar";
+      /* A URL-bar new-tab session. The clock belongs above the popup; if the
+         popup is not expanded yet there is nothing to anchor it to, and
+         Zen's replace-newtab mode is still showing the previous page, so
+         showing a clock over that page would be wrong. */
+      if (zenNewTab) {
+        return expanded ? "urlbar" : null;
       }
 
-      return emptyTab ? "content" : null;
+      /* Zen's persistent empty tab: this is a real new-tab page, so the clock
+         is valid whether or not the URL bar is expanded. */
+      if (emptyTab) {
+        return expanded ? "urlbar" : "content";
+      }
+
+      return null;
+    },
+
+    /** One debug line per state change, which is what makes a missing clock
+     *  diagnosable without a debugger attached. */
+    logClockState(state, anchor) {
+      if (!prefBool(PREF_DEBUG, false)) {
+        return;
+      }
+      const summary = JSON.stringify({ ...state, anchor });
+      if (summary === this.lastClockLog) {
+        return;
+      }
+      this.lastClockLog = summary;
+      this.log("clock", summary);
     },
 
     /* ---- clock markup -------------------------------------------------- */
@@ -765,18 +1003,24 @@
       doc.body.appendChild(clock.panel);
 
       this.pageClock = { browser, doc, ...clock };
+      this.applyPageClockColor();
 
       /* Keep the clock glued above the search box if the page ever scrolls or
-         resizes. */
+         resizes. Both are coalesced to one layout pass per frame. */
       const view = doc.defaultView;
       if (view) {
-        this.listenContent(view, "resize", () => this.positionPageClock(), {
-          passive: true,
-        });
-        this.listenContent(view, "scroll", () => this.positionPageClock(), {
-          passive: true,
-          capture: true,
-        });
+        this.listenContent(
+          view,
+          "resize",
+          () => this.schedulePositionUpdate(),
+          { passive: true }
+        );
+        this.listenContent(
+          view,
+          "scroll",
+          () => this.schedulePositionUpdate(),
+          { passive: true, capture: true }
+        );
       }
 
       /* Render before measuring: the panel's height is one of the inputs to its
@@ -884,11 +1128,26 @@
          position, and it has no height until it has content. */
       this.renderClock();
       this.positionOverlay();
+
+      if (prefBool(PREF_DEBUG, false)) {
+        const rect = panel.getBoundingClientRect();
+        this.log(
+          "clock overlay",
+          JSON.stringify({
+            anchor,
+            top: Math.round(rect.top),
+            left: Math.round(rect.left),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+            color: window.getComputedStyle(panel).color,
+          })
+        );
+      }
     },
 
     hideOverlay() {
       this.overlayVisible = false;
-      if (this.overlayEl) {
+      if (this.overlayEl && this.overlayEl.dataset.visible !== "false") {
         this.overlayEl.dataset.visible = "false";
       }
     },
@@ -898,6 +1157,25 @@
       this.overlayEl?.remove();
       this.overlayEl = null;
       this.overlayRefs = null;
+    },
+
+    /**
+     * Coalesces resize / scroll bursts into one layout pass per frame. A raw
+     * listener would run several `querySelector` calls and two layout reads for
+     * every event while the window is being dragged.
+     */
+    schedulePositionUpdate() {
+      if (this.positionQueued || this.destroyed) {
+        return;
+      }
+      this.positionQueued = true;
+      this.positionFrame = window.requestAnimationFrame(() => {
+        this.positionFrame = null;
+        this.positionQueued = false;
+        if (!this.destroyed) {
+          this.positionClocks();
+        }
+      });
     },
 
     positionClocks() {
@@ -953,11 +1231,8 @@
         return;
       }
 
-      const now = new Date();
-      const dateText = this.formatters.date.format(now);
-      const timeText = this.formatters.time.format(now);
-      const message = this.prefs?.message || DEFAULT_MESSAGE;
-
+      /* Collect the targets first: formatting a date is not free, and there is
+         no reason to do it when no clock is on screen. */
       const targets = [];
       if (this.pageClock?.panel?.isConnected) {
         targets.push(this.pageClock);
@@ -965,6 +1240,14 @@
       if (this.overlayVisible && this.overlayRefs?.panel?.isConnected) {
         targets.push(this.overlayRefs);
       }
+      if (!targets.length) {
+        return;
+      }
+
+      const now = new Date();
+      const dateText = this.formatters.date.format(now);
+      const timeText = this.formatters.time.format(now);
+      const message = this.prefs?.message || DEFAULT_MESSAGE;
 
       for (const target of targets) {
         if (target.date.textContent !== dateText) {

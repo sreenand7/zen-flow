@@ -1,14 +1,14 @@
 [
   {
-    "type": "text",
+    "type": "separator",
     "label": "**New tab clock**",
-    "margin": "4px 0 10px 0",
+    "margin": "2px 0 8px 0",
     "size": "15px"
   },
   {
     "type": "string",
     "property": "zen-flow.message",
-    "label": "Message shown under the clock. This is the one place to change it.",
+    "label": "Message shown under the clock",
     "placeholder": "Make today count.",
     "defaultValue": "Make today count."
   },
@@ -19,39 +19,122 @@
     "defaultValue": true
   },
   {
-    "type": "text",
-    "label": "**Loading animations**",
-    "margin": "16px 0 10px 0",
+    "type": "string",
+    "property": "zen-flow.clock-color",
+    "label": "Clock colour — any CSS colour, or empty to follow the theme",
+    "placeholder": "Automatic",
+    "defaultValue": ""
+  },
+  {
+    "type": "separator",
+    "label": "**Top loading bar**",
+    "margin": "16px 0 8px 0",
     "size": "15px"
   },
   {
     "type": "checkbox",
     "property": "zen-flow.show-top-bar",
-    "label": "Show the slim top loading bar while the current tab loads",
+    "label": "Show the slim loading bar at the top of the window",
     "defaultValue": true
+  },
+  {
+    "type": "dropdown",
+    "property": "zen-flow.bar-offset",
+    "label": "Distance from the top edge of the window",
+    "placeholder": false,
+    "defaultValue": "3",
+    "options": [
+      { "label": "0 px — flush with the top edge", "value": "0" },
+      { "label": "2 px", "value": "2" },
+      { "label": "3 px (default)", "value": "3" },
+      { "label": "4 px", "value": "4" },
+      { "label": "6 px", "value": "6" },
+      { "label": "8 px", "value": "8" },
+      { "label": "12 px", "value": "12" }
+    ]
+  },
+  {
+    "type": "string",
+    "property": "zen-flow.bar-color-a",
+    "label": "Bar colour — left stop",
+    "placeholder": "#4aa8ff",
+    "defaultValue": "#4aa8ff"
+  },
+  {
+    "type": "string",
+    "property": "zen-flow.bar-color-b",
+    "label": "Bar colour — middle stop",
+    "placeholder": "#6fe3ff",
+    "defaultValue": "#6fe3ff"
+  },
+  {
+    "type": "string",
+    "property": "zen-flow.bar-color-c",
+    "label": "Bar colour — right stop",
+    "placeholder": "#a8f4ff",
+    "defaultValue": "#a8f4ff"
+  },
+  {
+    "type": "string",
+    "property": "zen-flow.bar-glow",
+    "label": "Glow colour around the bar",
+    "placeholder": "rgba(90, 190, 255, 0.35)",
+    "defaultValue": "rgba(90, 190, 255, 0.35)"
+  },
+  {
+    "type": "separator",
+    "label": "**Loading tab outline**",
+    "margin": "16px 0 8px 0",
+    "size": "15px"
   },
   {
     "type": "checkbox",
     "property": "zen-flow.animate-loading-tabs",
-    "label": "Animate the outline of tabs that are loading",
+    "label": "Outline tabs while they are loading",
     "defaultValue": true
   },
   {
-    "type": "checkbox",
-    "property": "zen-flow.hide-native-loading-bar",
-    "label": "Hide Zen's built-in loading bar while this mod is active (avoids two indicators)",
-    "defaultValue": true
+    "type": "dropdown",
+    "property": "zen-flow.tab-animation",
+    "label": "Outline animation",
+    "placeholder": false,
+    "defaultValue": "pulse",
+    "options": [
+      { "label": "Pulse — smooth, composited (default)", "value": "pulse" },
+      { "label": "Rotating gradient — heavier on the main thread", "value": "rotate" },
+      { "label": "Static — no animation", "value": "static" }
+    ]
   },
   {
-    "type": "text",
+    "type": "string",
+    "property": "zen-flow.tab-color-a",
+    "label": "Outline colour — start",
+    "placeholder": "#4aa8ff",
+    "defaultValue": "#4aa8ff"
+  },
+  {
+    "type": "string",
+    "property": "zen-flow.tab-color-b",
+    "label": "Outline colour — end",
+    "placeholder": "#6fe3ff",
+    "defaultValue": "#6fe3ff"
+  },
+  {
+    "type": "separator",
     "label": "**URL bar**",
-    "margin": "16px 0 10px 0",
+    "margin": "16px 0 8px 0",
     "size": "15px"
   },
   {
     "type": "checkbox",
     "property": "zen-flow.blur-behind-popup",
-    "label": "Blur the page behind the URL bar popup (blur-behind-urlbar)",
+    "label": "Blur the page behind the open URL bar popup",
+    "defaultValue": true
+  },
+  {
+    "type": "checkbox",
+    "property": "zen-flow.hide-native-loading-bar",
+    "label": "Hide Zen's built-in loading bar (avoids two indicators)",
     "defaultValue": true
   }
 ]
