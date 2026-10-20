@@ -36,8 +36,19 @@
   --zen-flow-bar-color-a: #4aa8ff;
   --zen-flow-bar-color-b: #6fe3ff;
   --zen-flow-bar-color-c: #a8f4ff;
-  --zen-flow-bar-sheen: rgba(255, 255, 255, 0.85);
   --zen-flow-bar-glow: rgba(90, 190, 255, 0.35);
+  /* Time for one complete left-to-right pass. */
+  --zen-flow-bar-travel-duration: 1300ms;
+  /* Only used when motion is reduced: the moving segment is replaced by this
+     stationary bar so the loading cue does not vanish. */
+  --zen-flow-bar-static-gradient: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--zen-flow-bar-color-a) 20%,
+    var(--zen-flow-bar-color-b) 46%,
+    var(--zen-flow-bar-color-c) 60%,
+    transparent 100%
+  );
 
   /* Feature 2 — loading tab ring */
   --zen-flow-ring-width: 1.5px;
@@ -87,8 +98,17 @@
 
 /* ===========================================================================
  * Feature 1 — slim, centred top loading bar
+ *
  * The element is created by js/zen-flow.uc.mjs and is always positioned at
  * document level, so it can never affect toolbar or content layout.
+ *
+ * The bar is deliberately an empty track: it has no background of its own, so
+ * nothing stationary or "filled" is ever visible. While the selected tab is
+ * loading, a glowing gradient segment sweeps across it from left to right.
+ * When the load finishes the segment stops and the track fades out.
+ *
+ * Only `transform` and `opacity` are animated, both of which Firefox runs on
+ * the compositor, so this costs no script time and no per-frame repaint.
  * =========================================================================== */
 
 #zen-flow-top-bar {
@@ -101,23 +121,17 @@
   margin: 0 !important;
   padding: 0 !important;
   border: 0 !important;
-  border-radius: 0 0 3px 3px !important;
   box-sizing: border-box !important;
+  /* Keep the segment from drawing outside the track as it enters and leaves. */
   overflow: hidden !important;
+  /* ...but let the glow escape. A filter is applied to the already-clipped
+     result, so the halo survives `overflow: hidden`, where a box-shadow on the
+     segment would simply be cut off. */
+  filter: drop-shadow(0 0 5px var(--zen-flow-bar-glow)) !important;
   /* Never steal clicks from the toolbar or the page. */
   pointer-events: none !important;
   transform: translateX(-50%) !important;
-  /* The gradient is the bar itself, so the bar still looks right even when
-     all animation is switched off. */
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--zen-flow-bar-color-a) 20%,
-    var(--zen-flow-bar-color-b) 46%,
-    var(--zen-flow-bar-color-c) 60%,
-    transparent 100%
-  ) !important;
-  box-shadow: 0 0 8px var(--zen-flow-bar-glow) !important;
+  background: none !important;
   /* z-index above browser UI; harmless because it is 3px tall and
      pointer-events:none. */
   z-index: 2147483647 !important;
@@ -129,42 +143,75 @@
   opacity: 1 !important;
 }
 
-/* A soft highlight that sweeps across the bar while a page is loading.
- *
- * The animation is attached to `[data-active="true"]` only. Leaving it on the
- * base rule would run an infinite transform animation in every window, at all
- * times, even while the bar is fully transparent — enough to keep the
- * compositor busy forever on a laptop.
- *
- * With reduced motion it stays parked off the left edge, leaving the static
- * gradient above as the (still perfectly visible) loading cue. */
-#zen-flow-top-bar::after {
+/* The moving segment. Its width is a fraction of the track, so the travel
+ * distance below scales with `--zen-flow-bar-width`. */
+#zen-flow-top-bar::before {
   content: "" !important;
   position: absolute !important;
-  inset: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
   display: block !important;
-  border-radius: inherit !important;
+  width: 44% !important;
+  border-radius: 999px !important;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    var(--zen-flow-bar-sheen) 50%,
+    var(--zen-flow-bar-color-a) 26%,
+    var(--zen-flow-bar-color-b) 54%,
+    var(--zen-flow-bar-color-c) 78%,
     transparent 100%
   ) !important;
+  /* Parked just outside the left edge while the bar is inactive. */
   transform: translateX(-100%) !important;
+  opacity: 0 !important;
 }
 
-#zen-flow-top-bar[data-active="true"]::after {
-  animation: zen-flow-bar-sweep 1100ms cubic-bezier(0.45, 0, 0.25, 1) infinite !important;
-  animation-play-state: var(--zen-flow-motion) !important;
+/* The animation exists only while the bar is active. Leaving an infinite
+ * animation on the base rule would keep the compositor ticking in every window
+ * at all times, even with the bar fully transparent. */
+#zen-flow-top-bar[data-active="true"]::before {
+  animation: zen-flow-bar-travel var(--zen-flow-bar-travel-duration) linear
+    infinite !important;
 }
 
-@keyframes zen-flow-bar-sweep {
-  from {
+@keyframes zen-flow-bar-travel {
+  0% {
     transform: translateX(-100%);
+    opacity: 0;
   }
-  to {
-    transform: translateX(100%);
+  8% {
+    opacity: 1;
   }
+  92% {
+    opacity: 1;
+  }
+  /* 100 / 44 (the segment's width) = 227%, plus the -100% start offset, so the
+     segment's left edge clears the right end of the track at the end. */
+  100% {
+    transform: translateX(228%);
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: no travel. The track itself shows the gradient instead, so
+ * the "this tab is loading" cue stays visible without anything moving. */
+@media (prefers-reduced-motion: reduce) {
+  #zen-flow-top-bar[data-active="true"] {
+    background: var(--zen-flow-bar-static-gradient) !important;
+  }
+
+  #zen-flow-top-bar::before {
+    display: none !important;
+  }
+}
+
+:root[zen-flow-reduce-motion="true"] #zen-flow-top-bar[data-active="true"] {
+  background: var(--zen-flow-bar-static-gradient) !important;
+}
+
+:root[zen-flow-reduce-motion="true"] #zen-flow-top-bar::before {
+  display: none !important;
 }
 
 /* ===========================================================================

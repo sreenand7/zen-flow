@@ -2,7 +2,7 @@
 
 A small [Sine](https://github.com/CosmoCreeper/Sine) mod for [Zen Browser](https://zen-browser.app) that reworks the browser's loading indicators and gives new tabs a live date, clock and message.
 
-- **Slim loading bar** — a centred 3 px gradient strip that appears while the current tab is navigating, then fades out.
+- **Slim loading bar** — a glowing gradient segment that sweeps across the top of the window from left to right while the current tab is navigating, then disappears.
 - **Loading-tab outline** — a thin gradient ring around every tab that is actually loading, on any number of tabs at once.
 - **Blurred URL-bar backdrop** — the page behind the open URL-bar popup is blurred, while the popup, its text, icons and input stay sharp.
 - **New-tab clock** — weekday, date, a large live clock and a short message on the new-tab page, with the search bar below.
@@ -52,6 +52,10 @@ Everything is configurable from **Sine → Mods → Zen Flow → Settings**. The
 | Gradient stops | `zen-flow.bar-color-a`, `-b`, `-c` | `#4aa8ff`, `#6fe3ff`, `#a8f4ff` | Left, middle and right. |
 | Glow | `zen-flow.bar-glow` | `rgba(90, 190, 255, 0.35)` | Any CSS colour, including `transparent`. |
 
+The bar is a track, not a progress bar: it never fills up and it is never a stationary strip. Each pass takes about 1.3 seconds, repeated for as long as the tab is loading. When the load finishes the segment stops immediately and the track fades out. Only `transform` and `opacity` are animated, so the bar stays smooth without repainting.
+
+If the system asks for reduced motion, the moving segment is replaced by a static gradient for as long as the tab loads — the cue stays, the movement does not.
+
 ### Loading tab outline
 
 | Setting | Pref | Default | Notes |
@@ -87,6 +91,7 @@ The settings cover colours, position and animation style. Anything else lives in
 |---|---|---|
 | `--zen-flow-bar-width` | `clamp(160px, 36vw, 640px)` | Bar length. |
 | `--zen-flow-bar-height` | `3px` | Bar thickness. |
+| `--zen-flow-bar-travel-duration` | `1300ms` | Time for one left-to-right pass. |
 | `--zen-flow-ring-width` | `1.5px` | Thickness of the tab outline. |
 | `--zen-flow-ring-pulse-duration` | `2.2s` | Speed of the pulse. |
 | `--zen-flow-ring-duration` | `1.8s` | Speed of the rotating variant. |
