@@ -68,6 +68,12 @@
   --zen-flow-clock-color: currentColor;
   --zen-flow-clock-font: system-ui, "Segoe UI", roboto, sans-serif;
 
+  /* Feature 5 — how far the page dips while it loads, and how long it takes
+     to get there / come back. The scale is overridden from Sine. */
+  --zen-flow-page-zoom-scale: 0.98;
+  --zen-flow-page-zoom-start-duration: 120ms;
+  --zen-flow-page-zoom-settle-duration: 350ms;
+
   /* --- Internal: how animation is allowed to behave -----------------------
    * Both of these are redefined below when the user asks for reduced motion,
    * either through the operating system or through Zen's own
@@ -347,6 +353,58 @@
 }
 
 /* ===========================================================================
+ * Feature 5 — subtle page-load zoom
+ *
+ * The userscript writes `zen-flow-page-zoom="true"` on the content
+ * container while the selected tab is loading, then changes it to `"settle"`
+ * when the load ends, and removes it when the ease-back has finished.
+ *
+ * [INTERNAL] `#tabbrowser-tabpanels` is the innermost box that holds only web
+ * content. It sits inside `#tabbrowser-tabbox` (which carries the blur above),
+ * outside the tab strip, both sidebars and Zen's Library, so scaling it can
+ * never move the chrome.
+ *
+ * A transform does not participate in layout: nothing is reflowed, no
+ * scrollbar appears, and hit-testing follows the scaled content. Nothing is
+ * animated unless a page is genuinely loading.
+ *
+ * `!important` is safe here, unlike on the top bar: CSS transitions have
+ * higher cascade priority than important declarations, so these declarations
+ * set the endpoints while the transition still animates between them. They
+ * are not `@keyframes`, which would lose to `!important`.
+ * =========================================================================== */
+
+#tabbrowser-tabpanels[zen-flow-page-zoom="true"] {
+  transform: scale(var(--zen-flow-page-zoom-scale, 0.98)) !important;
+  transform-origin: center center !important;
+  transition: transform var(--zen-flow-page-zoom-start-duration, 120ms)
+    ease-out !important;
+}
+
+#tabbrowser-tabpanels[zen-flow-page-zoom="settle"] {
+  transform: scale(1) !important;
+  transform-origin: center center !important;
+  transition: transform var(--zen-flow-page-zoom-settle-duration, 350ms)
+    cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+/* Belt and braces. The userscript skips the zoom entirely when motion is
+   reduced, so this only matters if the attribute is left behind for any
+   reason. */
+@media (prefers-reduced-motion: reduce) {
+  #tabbrowser-tabpanels[zen-flow-page-zoom] {
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+:root[zen-flow-reduce-motion="true"]
+  #tabbrowser-tabpanels[zen-flow-page-zoom] {
+  transform: none !important;
+  transition: none !important;
+}
+
+/* ===========================================================================
  * Feature 4 (surface B) — clock overlay for Zen's URL-bar new-tab popup
  *
  * Zen replaces the classic new-tab page with an expanded URL bar
@@ -429,6 +487,649 @@
 
 :root[zen-flow-hide-native="true"] #zen-loading-progress-bar {
   display: none !important;
+}
+
+/* ===========================================================================
+ * Feature 6 — Advanced History
+ *
+ * A standalone modal built by js/zen-flow-history.uc.mjs and appended to
+ * `browser.xhtml`. It deliberately does not touch Zen's Library. Everything is
+ * scoped under `#zen-flow-history` so the browser chrome is unaffected when
+ * the panel is closed.
+ *
+ * The surfaces follow Zen's own tokens where they exist (`--arrowpanel-*`,
+ * `--zen-primary-color`, `--toolbar-color-scheme`) and fall back to
+ * `light-dark()` so the panel remains legible in both themes.
+ * =========================================================================== */
+
+/* The nav-bar entry point. Native `.toolbarbutton-1` rules still handle
+   hover, active, overflow and compact mode; only the icon needs forcing. */
+#zen-flow-history-button {
+  list-style-image: url("chrome://browser/skin/zen-icons/history.svg") !important;
+  -moz-context-properties: fill, fill-opacity !important;
+  fill: var(--toolbarbutton-icon-fill, currentColor) !important;
+}
+
+#zen-flow-history {
+  --zfh-accent: var(--zen-primary-color, currentColor);
+  --zfh-panel-bg: var(
+    --arrowpanel-background,
+    light-dark(rgb(244, 244, 244), rgb(31, 31, 31))
+  );
+  --zfh-text: var(--arrowpanel-color, currentColor);
+  --zfh-border: color-mix(in srgb, currentColor 14%, transparent);
+  --zfh-control-bg: color-mix(in srgb, currentColor 7%, transparent);
+  --zfh-control-hover: color-mix(in srgb, currentColor 13%, transparent);
+  --zfh-muted: color-mix(in srgb, currentColor 62%, transparent);
+  --zfh-radius: 12px;
+
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483646 !important;
+  display: grid !important;
+  place-items: center !important;
+  box-sizing: border-box !important;
+  padding: 24px !important;
+  background: light-dark(rgba(0, 0, 0, 0.32), rgba(0, 0, 0, 0.52)) !important;
+  color-scheme: var(--toolbar-color-scheme, light dark) !important;
+  color: var(--zfh-text) !important;
+  font-family: inherit !important;
+  font-size: 13px !important;
+  line-height: 1.35 !important;
+  -moz-window-dragging: no-drag !important;
+}
+
+#zen-flow-history[hidden],
+#zen-flow-history [hidden] {
+  display: none !important;
+}
+
+#zen-flow-history .zfh-panel {
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  width: min(960px, 100%) !important;
+  max-height: min(760px, 100%) !important;
+  min-height: min(340px, 100%) !important;
+  overflow: hidden !important;
+  background: var(--zfh-panel-bg) !important;
+  color: var(--zfh-text) !important;
+  border: 1px solid var(--zfh-border) !important;
+  border-radius: 16px !important;
+  box-shadow:
+    0 24px 80px light-dark(rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.55)),
+    var(--zen-big-shadow, 0 0 0 transparent) !important;
+  outline: none !important;
+  -moz-window-dragging: no-drag !important;
+}
+
+#zen-flow-history .zfh-panel *,
+#zen-flow-history .zfh-panel *::before,
+#zen-flow-history .zfh-panel *::after {
+  box-sizing: border-box;
+}
+
+/* ---- header ------------------------------------------------------------- */
+
+#zen-flow-history .zfh-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--zfh-border);
+  flex: none;
+}
+
+#zen-flow-history .zfh-title-wrap {
+  flex: 1;
+  min-width: 1px;
+}
+
+#zen-flow-history .zfh-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+#zen-flow-history .zfh-source {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--zfh-control-bg);
+  flex: none;
+}
+
+#zen-flow-history .zfh-source-tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 8px;
+}
+
+#zen-flow-history .zfh-source-tab:hover {
+  background: var(--zfh-control-hover);
+}
+
+#zen-flow-history .zfh-source-tab[aria-selected="true"] {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  font-weight: 600;
+}
+
+#zen-flow-history .zfh-icon-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  flex: none;
+}
+
+#zen-flow-history .zfh-icon-button:hover {
+  background: var(--zfh-control-hover);
+}
+
+#zen-flow-history .zfh-close {
+  font-size: 20px;
+  line-height: 1;
+  opacity: 0.72;
+}
+
+#zen-flow-history .zfh-close:hover {
+  opacity: 1;
+}
+
+/* ---- filters ------------------------------------------------------------ */
+
+#zen-flow-history .zfh-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--zfh-border);
+  flex: none;
+}
+
+#zen-flow-history .zfh-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--zfh-radius);
+  background: var(--zfh-control-bg);
+}
+
+#zen-flow-history .zfh-search:focus-within {
+  border-color: var(--zfh-accent);
+}
+
+#zen-flow-history .zfh-search-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  opacity: 0.55;
+  -moz-context-properties: fill, fill-opacity;
+  fill: currentColor;
+}
+
+#zen-flow-history .zfh-input {
+  appearance: none;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+#zen-flow-history .zfh-search-input {
+  flex: 1;
+  height: 100%;
+  padding: 0;
+}
+
+#zen-flow-history .zfh-input::placeholder {
+  color: var(--zfh-muted);
+  opacity: 1;
+}
+
+#zen-flow-history .zfh-search-clear {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  flex: none;
+  opacity: 0.6;
+}
+
+#zen-flow-history .zfh-search-clear:hover {
+  background: var(--zfh-control-hover);
+  opacity: 1;
+}
+
+#zen-flow-history .zfh-filter-grid {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 0.75fr) minmax(120px, 0.75fr)
+    minmax(190px, 1.4fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+#zen-flow-history .zfh-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+#zen-flow-history .zfh-field-label {
+  padding-inline-start: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--zfh-muted);
+}
+
+#zen-flow-history .zfh-field .zfh-input {
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--zfh-control-bg);
+}
+
+/* Keep the native calendar affordance: `appearance: none` on the shared
+   `.zfh-input` rule would otherwise hide it in some Firefox builds. */
+#zen-flow-history .zfh-field input[type="date"].zfh-input {
+  appearance: auto;
+}
+
+#zen-flow-history .zfh-field .zfh-input:focus {
+  border-color: var(--zfh-accent);
+}
+
+#zen-flow-history .zfh-clear-dates-wrap {
+  display: flex;
+  align-items: end;
+}
+
+#zen-flow-history .zfh-ghost,
+#zen-flow-history .zfh-secondary,
+#zen-flow-history .zfh-primary {
+  appearance: none;
+  border: 0;
+  border-radius: 9px;
+  background: var(--zfh-control-bg);
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+
+#zen-flow-history .zfh-ghost:hover,
+#zen-flow-history .zfh-secondary:hover,
+#zen-flow-history .zfh-primary:hover {
+  background: var(--zfh-control-hover);
+}
+
+#zen-flow-history #zfh-clear-dates {
+  height: 34px;
+  font-size: 12px;
+}
+
+#zen-flow-history .zfh-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+#zen-flow-history .zfh-presets {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#zen-flow-history .zfh-presets button {
+  appearance: none;
+  border: 0;
+  border-radius: 8px;
+  background: var(--zfh-control-bg);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+#zen-flow-history .zfh-presets button:hover {
+  background: var(--zfh-control-hover);
+}
+
+#zen-flow-history .zfh-presets button.active {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  font-weight: 600;
+}
+
+#zen-flow-history #zfh-clear {
+  margin-inline-start: auto;
+  font-size: 12px;
+}
+
+#zen-flow-history .zfh-error {
+  margin: 0;
+  font-size: 12px;
+  color: light-dark(#b3261e, #ffb4ab);
+}
+
+#zen-flow-history .zfh-field .zfh-input[aria-invalid="true"] {
+  border-color: light-dark(#b3261e, #ffb4ab);
+}
+
+/* ---- results ------------------------------------------------------------ */
+
+#zen-flow-history .zfh-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px 6px;
+  flex: none;
+}
+
+#zen-flow-history .zfh-status {
+  font-size: 12px;
+  color: var(--zfh-muted);
+}
+
+#zen-flow-history .zfh-sort {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--zfh-muted);
+}
+
+#zen-flow-history .zfh-select {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--zfh-control-bg);
+  color: var(--zfh-text);
+  font: inherit;
+  font-size: 12px;
+  color-scheme: var(--toolbar-color-scheme, light dark);
+}
+
+#zen-flow-history .zfh-select:focus {
+  border-color: var(--zfh-accent);
+}
+
+#zen-flow-history .zfh-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+  outline: none;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, currentColor 25%, transparent) transparent;
+  overscroll-behavior: contain;
+}
+
+#zen-flow-history .zfh-results:focus-visible {
+  outline: 2px solid var(--zfh-accent);
+  outline-offset: -2px;
+  border-radius: 10px;
+}
+
+#zen-flow-history .zfh-group-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 10px 10px 5px;
+  background: var(--zfh-panel-bg);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--zfh-muted);
+}
+
+#zen-flow-history .zfh-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-inline-end: 4px;
+  border-radius: var(--zfh-radius);
+}
+
+#zen-flow-history .zfh-row:hover,
+#zen-flow-history .zfh-row:focus-within {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+#zen-flow-history .zfh-row-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: var(--zfh-radius);
+  color: inherit;
+  text-decoration: none;
+}
+
+#zen-flow-history .zfh-row-main:focus-visible {
+  outline: 2px solid var(--zfh-accent);
+  outline-offset: -2px;
+}
+
+#zen-flow-history .zfh-row-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+#zen-flow-history .zfh-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+#zen-flow-history .zfh-row-title {
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#zen-flow-history .zfh-row-subtitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--zfh-muted);
+}
+
+#zen-flow-history .zfh-row-url {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#zen-flow-history .zfh-row-time {
+  flex: none;
+  white-space: nowrap;
+}
+
+#zen-flow-history .zfh-row-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+#zen-flow-history .zfh-row:hover .zfh-row-actions,
+#zen-flow-history .zfh-row:focus-within .zfh-row-actions {
+  opacity: 1;
+}
+
+#zen-flow-history .zfh-row-action {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+}
+
+#zen-flow-history .zfh-row-action:hover {
+  background: var(--zfh-control-hover);
+}
+
+#zen-flow-history .zfh-row-action:focus-visible {
+  outline: 2px solid var(--zfh-accent);
+  outline-offset: -1px;
+}
+
+#zen-flow-history .zfh-row-action img {
+  width: 16px;
+  height: 16px;
+  opacity: 0.8;
+  -moz-context-properties: fill, fill-opacity;
+  fill: currentColor;
+}
+
+#zen-flow-history .zfh-empty {
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--zfh-muted);
+}
+
+/* ---- footer ------------------------------------------------------------- */
+
+#zen-flow-history .zfh-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--zfh-border);
+  flex: none;
+}
+
+#zen-flow-history .zfh-hint {
+  font-size: 11.5px;
+  color: var(--zfh-muted);
+}
+
+#zen-flow-history .zfh-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+
+#zen-flow-history #zfh-more {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+#zen-flow-history #zfh-done {
+  padding: 7px 18px;
+  font-weight: 600;
+}
+
+/* ---- focus, motion and narrow windows ----------------------------------- */
+
+#zen-flow-history :focus-visible {
+  outline: 2px solid var(--zfh-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #zen-flow-history * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (max-width: 720px) {
+  #zen-flow-history {
+    padding: 10px !important;
+  }
+
+  #zen-flow-history .zfh-filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  #zen-flow-history .zfh-field-site {
+    grid-column: 1 / -1;
+  }
+
+  #zen-flow-history .zfh-clear-dates-wrap {
+    grid-column: 2;
+    justify-self: end;
+  }
+
+  #zen-flow-history .zfh-hint {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  #zen-flow-history .zfh-title-wrap {
+    display: none;
+  }
+
+  #zen-flow-history .zfh-header {
+    justify-content: space-between;
+  }
 }
 
 /* ===========================================================================

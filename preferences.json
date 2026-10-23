@@ -121,6 +121,42 @@
   },
   {
     "type": "separator",
+    "label": "**Page loading**",
+    "margin": "16px 0 8px 0",
+    "size": "15px"
+  },
+  {
+    "type": "checkbox",
+    "property": "zen-flow.page-zoom",
+    "label": "Zoom the page slightly while it loads, then ease back",
+    "defaultValue": true
+  },
+  {
+    "type": "dropdown",
+    "property": "zen-flow.page-zoom-amount",
+    "label": "Starting zoom",
+    "placeholder": false,
+    "defaultValue": "0.98",
+    "options": [
+      { "label": "99% — very subtle", "value": "0.99" },
+      { "label": "98% — subtle (default)", "value": "0.98" },
+      { "label": "97% — more noticeable", "value": "0.97" }
+    ]
+  },
+  {
+    "type": "separator",
+    "label": "**Advanced History**",
+    "margin": "16px 0 8px 0",
+    "size": "15px"
+  },
+  {
+    "type": "checkbox",
+    "property": "zen-flow.history-enabled",
+    "label": "Show the Advanced History button in the toolbar",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
     "label": "**URL bar**",
     "margin": "16px 0 8px 0",
     "size": "15px"

@@ -13,6 +13,9 @@
  *   Feature 4  Inject the date / clock / message either into the real
  *              new-tab page, or into a chrome overlay above Zen's URL-bar
  *              new-tab popup.
+ *   Feature 5  Publish the selected tab's loading state as a `data-` attribute
+ *              on the content container, so CSS can run a very small
+ *              scale-down / ease-back while a page loads.
  *
  * Design notes
  *   - Loading state is read from the tab's own `busy` / `progress`
@@ -43,6 +46,7 @@
   const ATTR_POPUP = "zen-flow-popup-open";
   const ATTR_TAB_ANIMATION = "zen-flow-tab-animation";
   const ATTR_REDUCE_MOTION = "zen-flow-reduce-motion";
+  const ATTR_PAGE_ZOOM = "zen-flow-page-zoom";
 
   /* --- Preferences ------------------------------------------------------ */
   const PREF_MESSAGE = "zen-flow.message";
@@ -60,6 +64,8 @@
   const PREF_TAB_COLOR_B = "zen-flow.tab-color-b";
   const PREF_HIDE_NATIVE = "zen-flow.hide-native-loading-bar";
   const PREF_BLUR = "zen-flow.blur-behind-popup";
+  const PREF_PAGE_ZOOM = "zen-flow.page-zoom";
+  const PREF_PAGE_ZOOM_AMOUNT = "zen-flow.page-zoom-amount";
   const PREF_DEBUG = "zen-flow.debug";
 
   const DEFAULT_MESSAGE = "Make today count.";
@@ -68,6 +74,19 @@
   const DEFAULT_BAR_OFFSET = 3;
   const MAX_BAR_OFFSET = 48;
   const TAB_ANIMATIONS = new Set(["pulse", "rotate", "static"]);
+
+  /* Page-load zoom. The scale is expressed as a multiplier and the transition
+     is entirely in CSS; this side only owns the state machine. The fallback is
+     deliberately a little longer than the 350 ms transition so a missed
+     `transitionend` can never leave the attribute behind. */
+  const PAGE_ZOOM_AMOUNTS = new Set(["0.99", "0.98", "0.97"]);
+  const DEFAULT_PAGE_ZOOM = "0.98";
+  const PAGE_ZOOM_SETTLE_FALLBACK_MS = 500;
+  /* A transform event shorter than this can only belong to the shorter
+     "start" transition. Without this guard, a queued start-transition event
+     that lands just after the state changes to "settle" would remove the
+     attribute and snap the content back instead of easing it. */
+  const PAGE_ZOOM_SETTLE_MIN_EVENT_MS = 250;
 
   /* Preference -> custom property. The property names are the public
      customisation surface documented in the README. */
@@ -86,6 +105,7 @@
     ...COLOR_PREFS.map(([, property]) => property),
     "--zen-flow-bar-top",
     "--zen-flow-clock-color",
+    "--zen-flow-page-zoom-scale",
   ];
 
   const ALL_PREFS = [
@@ -104,6 +124,8 @@
     PREF_TAB_COLOR_B,
     PREF_HIDE_NATIVE,
     PREF_BLUR,
+    PREF_PAGE_ZOOM,
+    PREF_PAGE_ZOOM_AMOUNT,
     PREF_DEBUG,
   ];
 
@@ -165,6 +187,12 @@
     pageClock: null,
     pendingPageDoc: null,
 
+    /* Feature 5 — content container and its one-shot settle state. */
+    tabpanels: null,
+    zoomTab: null,
+    pageZoomTimer: null,
+    reducedMotionQuery: null,
+
     /* Bookkeeping so `destroy()` can be exhaustive. */
     listeners: [],
     contentListeners: [],
@@ -219,6 +247,12 @@
 
       if (this.prefs.topBar) {
         this.createTopBar();
+      }
+
+      if (this.prefs.pageZoom && !this.ensurePageZoomTarget()) {
+        this.warn(
+          "could not find #tabbrowser-tabpanels; page-load zoom is disabled",
+        );
       }
 
       this.observeTabs();
@@ -298,6 +332,9 @@
 
       this.removePageClock();
       this.destroyOverlay();
+      this.clearPageZoom();
+      this.tabpanels = null;
+      this.reducedMotionQuery = null;
 
       this.topBar?.remove();
       this.topBar = null;
@@ -366,6 +403,11 @@
         tabColorB: prefString(PREF_TAB_COLOR_B, "").trim(),
         hideNative: prefBool(PREF_HIDE_NATIVE, true),
         blur: prefBool(PREF_BLUR, true),
+        pageZoom: prefBool(PREF_PAGE_ZOOM, true),
+        pageZoomAmount: prefString(
+          PREF_PAGE_ZOOM_AMOUNT,
+          DEFAULT_PAGE_ZOOM,
+        ).trim(),
       };
     },
 
@@ -402,7 +444,18 @@
     /** True when the browser has been asked to reduce motion. */
     wantsReducedMotion() {
       try {
-        return window.gReduceMotion === true;
+        if (window.gReduceMotion === true) {
+          return true;
+        }
+      } catch (error) {
+        /* not a browser window */
+      }
+      try {
+        if (!this.reducedMotionQuery) {
+          this.reducedMotionQuery =
+            window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+        }
+        return this.reducedMotionQuery?.matches === true;
       } catch (error) {
         return false;
       }
@@ -454,6 +507,11 @@
       if (root.getAttribute(ATTR_TAB_ANIMATION) !== animation) {
         root.setAttribute(ATTR_TAB_ANIMATION, animation);
       }
+
+      const zoomAmount = PAGE_ZOOM_AMOUNTS.has(this.prefs.pageZoomAmount)
+        ? this.prefs.pageZoomAmount
+        : DEFAULT_PAGE_ZOOM;
+      root.style.setProperty("--zen-flow-page-zoom-scale", zoomAmount);
 
       this.applyClockColor();
     },
@@ -750,7 +808,174 @@
       }
 
       const selected = this.gBrowser.selectedTab;
-      this.setTopBarActive(this.isTabLoading(selected));
+      const loading = this.isTabLoading(selected);
+      this.setTopBarActive(loading);
+      this.updatePageZoom(loading, selected);
+    },
+
+    /* ====================================================================
+     * Feature 5 — subtle page-load zoom
+     * ================================================================== */
+
+    /**
+     * Resolves the element that really contains web content. In Zen this is
+     * `#tabbrowser-tabpanels`: it excludes the chrome, both sidebars and the
+     * Library, and it is a child of the element that carries the URL-bar blur,
+     * so the two effects never share the same box.
+     *
+     * The transition listener is installed once per resolved element and
+     * tracked in `listeners`, so `destroy()` removes it with everything else.
+     */
+    ensurePageZoomTarget() {
+      if (this.tabpanels?.isConnected) {
+        return this.tabpanels;
+      }
+
+      let element = null;
+      try {
+        element = this.gBrowser?.tabpanels ?? null;
+      } catch (error) {
+        element = null;
+      }
+      if (!element) {
+        try {
+          element =
+            this.document?.getElementById("tabbrowser-tabpanels") ?? null;
+        } catch (error) {
+          element = null;
+        }
+      }
+      if (!element) {
+        return null;
+      }
+
+      this.tabpanels = element;
+      this.listen(element, "transitionend", (event) =>
+        this.onPageZoomTransitionEnd(event),
+      );
+      return element;
+    },
+
+    /**
+     * The selected tab's real `busy` / `progress` state drives the attribute.
+     *
+     * `"true"`      while that tab is loading (CSS scales the content down)
+     * `"settle"`    for the ~350 ms ease-back after it finishes
+     * (no attribute) at rest
+     *
+     * Only the *selected* tab can drive the zoom: when the selection moves to
+     * a tab that is not loading, the old tab's effect is removed immediately
+     * instead of animating the newly visible content.
+     */
+    updatePageZoom(loading, tab) {
+      if (this.destroyed) {
+        return;
+      }
+      if (!this.prefs?.pageZoom || this.wantsReducedMotion()) {
+        this.clearPageZoom();
+        return;
+      }
+
+      const element = this.ensurePageZoomTarget();
+      if (!element) {
+        return;
+      }
+
+      const state = element.getAttribute(ATTR_PAGE_ZOOM);
+
+      if (loading) {
+        if (this.zoomTab === tab && state === "true") {
+          return;
+        }
+        this.cancelPageZoomSettle();
+        this.zoomTab = tab;
+        if (state !== "true") {
+          element.setAttribute(ATTR_PAGE_ZOOM, "true");
+        }
+        return;
+      }
+
+      /* A later pass for the *same* tab must not cut the settle short by
+         removing the attribute, which would snap the transform to 1. */
+      if (this.zoomTab === tab) {
+        if (state === "true") {
+          this.settlePageZoom();
+        }
+        return;
+      }
+
+      /* The selection moved to a non-loading tab (or there is no active
+         zoom): drop the previous tab's state at once. */
+      this.clearPageZoom();
+    },
+
+    /** Starts the ease-back and arms a fallback in case no event arrives. */
+    settlePageZoom() {
+      const element = this.tabpanels;
+      if (!element) {
+        this.clearPageZoom();
+        return;
+      }
+
+      if (element.getAttribute(ATTR_PAGE_ZOOM) === "true") {
+        element.setAttribute(ATTR_PAGE_ZOOM, "settle");
+      }
+
+      this.cancelPageZoomSettle();
+      this.pageZoomTimer = window.setTimeout(() => {
+        this.pageZoomTimer = null;
+        if (this.destroyed) {
+          return;
+        }
+        try {
+          if (this.tabpanels?.getAttribute(ATTR_PAGE_ZOOM) === "settle") {
+            this.tabpanels.removeAttribute(ATTR_PAGE_ZOOM);
+            this.zoomTab = null;
+          }
+        } catch (error) {
+          /* window is tearing down */
+        }
+      }, PAGE_ZOOM_SETTLE_FALLBACK_MS);
+    },
+
+    cancelPageZoomSettle() {
+      if (this.pageZoomTimer) {
+        clearTimeout(this.pageZoomTimer);
+        this.pageZoomTimer = null;
+      }
+    },
+
+    clearPageZoom() {
+      this.cancelPageZoomSettle();
+      this.zoomTab = null;
+      try {
+        this.tabpanels?.removeAttribute(ATTR_PAGE_ZOOM);
+      } catch (error) {
+        /* window is tearing down */
+      }
+    },
+
+    /**
+     * The settle transition has a known duration, so its end is the least
+     * surprising moment to drop the attribute. The fallback timer above still
+     * covers a missed event (for example when the transition never starts
+     * because the scale was already 1).
+     */
+    onPageZoomTransitionEnd(event) {
+      if (
+        event.target !== this.tabpanels ||
+        event.propertyName !== "transform" ||
+        this.tabpanels?.getAttribute(ATTR_PAGE_ZOOM) !== "settle"
+      ) {
+        return;
+      }
+      /* Ignore a queued event from the 120 ms scale-down transition. */
+      if (event.elapsedTime * 1000 < PAGE_ZOOM_SETTLE_MIN_EVENT_MS) {
+        return;
+      }
+      this.cancelPageZoomSettle();
+      this.tabpanels.removeAttribute(ATTR_PAGE_ZOOM);
+      this.zoomTab = null;
     },
 
     /* ====================================================================

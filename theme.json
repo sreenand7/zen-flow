@@ -1,9 +1,9 @@
 {
   "id": "zen-flow",
   "name": "Zen Flow",
-  "description": "A slim gradient loading bar, a pulsing outline on loading tabs, a blurred backdrop behind the URL bar, and a live date, clock and message on new tabs.",
+  "description": "A slim gradient loading bar, a subtle page-load zoom, pulsing loading tabs, a blurred URL-bar backdrop, a live new-tab clock, and a standalone Advanced History panel with date, site and closed-tab filters.",
   "author": "sreenand7",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "style": {
     "chrome": "userChrome.css",
     "content": "userContent.css"
@@ -11,11 +11,19 @@
   "scripts": {
     "js/zen-flow.uc.mjs": {
       "name": "Zen Flow core",
-      "description": "Drives the top loading bar, the loading-tab class and the new-tab clock.",
+      "description": "Drives the top loading bar, the page-load zoom, the loading-tab class and the new-tab clock.",
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 10
+    },
+    "js/zen-flow-history.uc.mjs": {
+      "name": "Zen Flow Advanced History",
+      "description": "Adds a standalone searchable and filterable History panel with closed tabs.",
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 20
     }
   },
   "preferences": "preferences.json",
@@ -26,6 +34,8 @@
     "animation",
     "loading",
     "newtab",
+    "history",
+    "search",
     "zen"
   ],
   "fork": [
