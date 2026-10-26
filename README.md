@@ -90,7 +90,7 @@ The page starts at the chosen scale as soon as the selected tab reports that it 
 |---|---|---|---|
 | Show the toolbar button | `zen-flow.history-enabled` | on | The `Ctrl+Alt+H` shortcut works even when the button is hidden. |
 
-Advanced History is a standalone panel. It reads Places and SessionStore directly and does not modify Zen's Library.
+Advanced History is a standalone panel. It reads Places and SessionStore directly and does not modify Zen's Library. Its toolbar entry point is labelled **Enhanced History** and uses a clock-and-magnifier icon, so it is not confused with Zen's own History button.
 
 - **History** lists page visits and can remove individual URLs from history.
 - **Closed tabs** lists the tabs closed in the current window and can restore or forget them.
@@ -175,7 +175,7 @@ Set **Clock colour** to something that contrasts with your wallpaper, or leave i
 
 ### `Ctrl+Alt+H` does not open Advanced History
 
-Another application or the window manager may own the shortcut. Use the toolbar button instead, and check that **Show the Advanced History button in the toolbar** is on. In a popup window without a nav bar, the shortcut still works.
+Another application or the window manager may own the shortcut. Use the toolbar button instead, and check that **Show the Enhanced History button in the toolbar** is on. In a popup window without a nav bar, the shortcut still works.
 
 ### A removed history entry comes back
 
@@ -220,7 +220,7 @@ Sine reads `preferences.json` from the installed copy. Update or reinstall the m
 - Advanced History is not a full Library replacement. It has no bookmarks/tags management, import/export or cross-window live refresh; it queries when it opens, when a filter changes and after an action.
 - In Date mode, rows are deduplicated by URL and local day and show the newest visit in each group. Site, Most visited and Last visited use page-level Places rows: a date filter selects pages with at least one visit in the range, while the displayed time is the page's last visit. This matches Zen's Library.
 - History dates are local days and both ends are inclusive. Changing the system timezone or clock changes what “today” means.
-- The toolbar button is a plain per-window nav-bar node rather than a CustomizableUI widget, so it cannot be dragged in the customization palette and it is re-added when a window loads. The shortcut is independent of the button setting.
+- The toolbar button is a plain per-window toolbar node rather than a CustomizableUI widget, so it cannot be dragged in the customization palette and it is re-added when a window loads. In single-toolbar mode it lives in Zen's sidebar header next to the other toolbar buttons; in every other layout it uses the nav bar. The shortcut is independent of the button setting.
 - Page zoom transforms the content container. Pages with their own fixed-position overlays can shift by a pixel or two during the transition; the browser chrome never moves. A load that finishes before a frame is painted may not show a visible zoom.
 - The mod does not modify any browser preferences other than the ones it owns under the `zen-flow.` prefix.
 
@@ -291,7 +291,7 @@ node -e "JSON.parse(require('fs').readFileSync('theme.json')); JSON.parse(requir
 | `formatURIStringForDisplay` | Site labels in Site sort and the website suggestions | `BrowserUtils.sys.mjs`, the same helper Zen's Library uses |
 | `PlacesUtils.history.remove` | Remove a history URL | Places' public API |
 | `page-icon:` | Row favicons | Firefox |
-| `#nav-bar-customization-target` | Where the history button is appended | Firefox nav bar |
+| `#nav-bar-customization-target`, `#zen-sidebar-top-buttons-customization-target` | Where the history button is appended | Firefox nav bar, Zen's single-toolbar sidebar header |
 | `openTrustedLinkIn` | Open a history row in a new tab | Firefox browser window |
 
 `window.addUnloadListener(fn)` is Sine's unload hook; it must be called with a single argument so Sine can derive the script path from the caller.

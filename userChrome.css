@@ -240,7 +240,7 @@
  * the ring is simply static.
  * =========================================================================== */
 
-/* Registered custom property, used only by the opt-in rotating variant. */
+/* Registered custom property, animated only by the opt-in rotating variant. */
 @property --zen-flow-ring-angle {
   syntax: "<angle>";
   inherits: false;
@@ -264,13 +264,14 @@
   border-radius: inherit !important;
   pointer-events: none !important;
   z-index: 1 !important;
+  /* A complete ring: pulse and static never move the gradient, so a partial
+     arc would leave most of the tab perimeter unlit. The rotating mode swaps
+     this back to its travelling arc below. */
   background: conic-gradient(
     from var(--zen-flow-ring-angle),
-    transparent 0deg,
-    var(--zen-flow-tab-color-a) 55deg,
-    var(--zen-flow-tab-color-b) 145deg,
-    transparent 205deg,
-    transparent 360deg
+    var(--zen-flow-tab-color-a) 0deg,
+    var(--zen-flow-tab-color-b) 180deg,
+    var(--zen-flow-tab-color-a) 360deg
   ) border-box !important;
   /* Punch the middle out of the gradient so only a thin ring remains. */
   -webkit-mask:
@@ -314,10 +315,19 @@
 
 /* Opt-in: the original rotating arc. Animating a registered custom property
    forces a style recalculation and a gradient repaint on every frame, on the
-   main thread, for every loading tab. Nice, but expensive. */
+   main thread, for every loading tab. Nice, but expensive. The partial arc is
+   restored here so the rotating variant looks exactly as it always has. */
 :root[zen-flow-tab-animation="rotate"]
   .tabbrowser-tab.zen-flow-loading
   .tab-background::after {
+  background: conic-gradient(
+    from var(--zen-flow-ring-angle),
+    transparent 0deg,
+    var(--zen-flow-tab-color-a) 55deg,
+    var(--zen-flow-tab-color-b) 145deg,
+    transparent 205deg,
+    transparent 360deg
+  ) border-box !important;
   animation: zen-flow-ring-spin var(--zen-flow-ring-duration) linear infinite !important;
   animation-play-state: var(--zen-flow-motion) !important;
 }
@@ -501,10 +511,12 @@
  * `light-dark()` so the panel remains legible in both themes.
  * =========================================================================== */
 
-/* The nav-bar entry point. Native `.toolbarbutton-1` rules still handle
-   hover, active, overflow and compact mode; only the icon needs forcing. */
+/* The toolbar entry point, in the nav bar or in Zen's sidebar header. Native
+   `.toolbarbutton-1` rules still handle hover, active, overflow and compact
+   mode; only the icon needs forcing. The SVG itself is set by the userscript,
+   so the data URI lives in exactly one place. */
 #zen-flow-history-button {
-  list-style-image: url("chrome://browser/skin/zen-icons/history.svg") !important;
+  list-style-image: var(--zen-flow-history-icon) !important;
   -moz-context-properties: fill, fill-opacity !important;
   fill: var(--toolbarbutton-icon-fill, currentColor) !important;
 }

@@ -152,7 +152,7 @@
   {
     "type": "checkbox",
     "property": "zen-flow.history-enabled",
-    "label": "Show the Advanced History button in the toolbar",
+    "label": "Show the Enhanced History button in the toolbar",
     "defaultValue": true
   },
   {

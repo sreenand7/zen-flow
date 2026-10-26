@@ -7,8 +7,8 @@
  * modal panel.
  *
  * Entry points
- *   - A toolbar button appended to the nav bar, controlled by
- *     `zen-flow.history-enabled`.
+ *   - A toolbar button in the nav bar, or in Zen's sidebar header when
+ *     single-toolbar mode is active, controlled by `zen-flow.history-enabled`.
  *   - Ctrl+Alt+H, which is always available while the mod is loaded.
  *
  * Design notes
@@ -45,7 +45,11 @@ const DEBOUNCE_MS = 180;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const MAX_DATALIST = 50;
 
-const ICON_HISTORY = "chrome://browser/skin/zen-icons/history.svg";
+/* Clock plus magnifier, so the button cannot be mistaken for Zen's own
+   History entry. Kept inline: the icon library has no combined asset. */
+const ICON_HISTORY = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="context-fill" fill-opacity="context-fill-opacity" viewBox="0 0 18 18"><path fill-rule="evenodd" d="M6.5 1.7a4.8 4.8 0 1 0 0 9.6 4.8 4.8 0 0 0 0-9.6Zm0 1.3a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z"/><path d="M5.95 3.4a.55.55 0 0 1 1.1 0v2.95h2.9a.55.55 0 0 1 0 1.1H6.5a.55.55 0 0 1-.55-.55Z"/><path fill-rule="evenodd" d="M12.6 9.25a3.15 3.15 0 1 0 0 6.3 3.15 3.15 0 0 0 0-6.3Zm0 1.15a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z"/><rect x="13.9" y="15.15" width="4" height="1.3" rx=".65" transform="rotate(45 15.9 15.8)"/></svg>'
+)}`;
 const ICON_SEARCH = "chrome://browser/skin/zen-icons/search-glass.svg";
 const ICON_TRASH = "chrome://browser/skin/zen-icons/trash.svg";
 const ICON_REOPEN = "chrome://browser/skin/zen-icons/u-turn-to-left.svg";
@@ -651,11 +655,24 @@ class ZenFlowHistory {
       return;
     }
 
+    /* In single-toolbar mode Zen moves the nav-bar buttons into the sidebar
+       header and lets the URL bar take all remaining width. Appending next to
+       the URL bar would push this button past the sidebar edge, so use the
+       same target Zen uses for its own buttons. Every other layout keeps the
+       nav bar. Zen moves the button between the two targets on later layout
+       changes because it carries `chromeclass-toolbar-additional`. */
+    const singleToolbar =
+      this.documentElement.getAttribute("zen-single-toolbar") === "true";
     const target =
+      (singleToolbar
+        ? this.document.getElementById(
+            "zen-sidebar-top-buttons-customization-target"
+          )
+        : null) ??
       this.document.getElementById("nav-bar-customization-target") ??
       this.document.getElementById("nav-bar");
     if (!target) {
-      this.warn("nav bar not found; use Ctrl+Alt+H");
+      this.warn("toolbar target not found; use Ctrl+Alt+H");
       return;
     }
 
@@ -665,14 +682,15 @@ class ZenFlowHistory {
     const button = this.document.createElementNS(XUL_NS, "toolbarbutton");
     button.id = BUTTON_ID;
     button.className = "toolbarbutton-1 chromeclass-toolbar-additional";
-    button.setAttribute("label", "Advanced History");
-    button.setAttribute("tooltiptext", "Advanced History (Ctrl+Alt+H)");
+    button.setAttribute("label", "Enhanced History");
+    button.setAttribute("tooltiptext", "Enhanced History (Ctrl+Alt+H)");
     button.setAttribute("image", ICON_HISTORY);
-    button.setAttribute("aria-label", "Advanced History");
+    button.setAttribute("aria-label", "Enhanced History");
     button.setAttribute("aria-keyshortcuts", "Control+Alt+H");
     button.setAttribute("aria-haspopup", "dialog");
     button.setAttribute("aria-controls", ROOT_ID);
     button.setAttribute("aria-expanded", String(this.isOpen));
+    button.style.setProperty("--zen-flow-history-icon", `url("${ICON_HISTORY}")`);
 
     this.listen(button, "command", () => this.open());
     target.appendChild(button);
