@@ -76,20 +76,19 @@
 
   /* --- Internal: how animation is allowed to behave -----------------------
    * Both of these are redefined below when the user asks for reduced motion,
-   * either through the operating system or through Zen's own
-   * `gReduceMotion` / `ui.prefersReducedMotion` state. Keeping the decision in
-   * two custom properties means the animation rules themselves never have to
-   * be written twice.
+   * either through the operating system or through Firefox's
+   * `ui.prefersReducedMotion` override. Keeping the decision in two custom
+   * properties means the animation rules themselves never have to be written
+   * twice.
    * --------------------------------------------------------------------- */
   --zen-flow-motion: running;
   --zen-flow-fade: 170ms;
 }
 
 /* Reduced motion, however the user expresses it. `zen-flow-reduce-motion` is
-   set by js/zen-flow.uc.mjs from `window.gReduceMotion` (which also follows
-   the `ui.prefersReducedMotion` preference), so this covers the case where the
-   OS setting and the browser preference disagree — and still works when the
-   userscript is not running, thanks to the media query. */
+   set by js/zen-flow.uc.mjs from the same live media query used below, so the
+   state also updates while the browser is running. The media query remains
+   the fallback when the userscript is not running. */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --zen-flow-motion: paused;

@@ -192,6 +192,7 @@
     zoomTab: null,
     pageZoomTimer: null,
     reducedMotionQuery: null,
+    reducedMotionWatched: false,
 
     /* Bookkeeping so `destroy()` can be exhaustive. */
     listeners: [],
@@ -243,6 +244,7 @@
 
       this.readPrefs();
       this.applyPrefAttributes();
+      this.watchReducedMotion();
       this.applyVisualPrefs();
 
       if (this.prefs.topBar) {
@@ -335,6 +337,7 @@
       this.clearPageZoom();
       this.tabpanels = null;
       this.reducedMotionQuery = null;
+      this.reducedMotionWatched = false;
 
       this.topBar?.remove();
       this.topBar = null;
@@ -434,30 +437,62 @@
 
       setFlag(ATTR_HIDE_NATIVE, this.prefs.hideNative);
       setFlag(ATTR_BLUR, this.prefs.blur);
-      /* Zen's own reduced-motion state. Honouring it here means the animations
-         stop for someone who asked Zen to reduce motion even if the OS-level
-         media query does not fire, and it keeps working when this script is
-         not running because the media query is still in the stylesheet. */
+      /* Mirror the same live media query the stylesheet uses. Firefox's
+         cached reduced-motion getter cannot be used here: it starts as `true`
+         and is only refreshed from the query by a browser-window idle task
+         that runs after Sine has already imported this script. */
       setFlag(ATTR_REDUCE_MOTION, this.wantsReducedMotion());
     },
 
-    /** True when the browser has been asked to reduce motion. */
-    wantsReducedMotion() {
-      try {
-        if (window.gReduceMotion === true) {
-          return true;
-        }
-      } catch (error) {
-        /* not a browser window */
-      }
+    /**
+     * The live `prefers-reduced-motion` media query, or null if this window
+     * cannot create one.
+     *
+     * Firefox's `gReduceMotion` is deliberately not consulted. It starts as
+     * `true` ("Reduce motion during startup") and is only refreshed from this
+     * same query by a browser-window idle task. Sine imports mod scripts on
+     * `load`, before that idle task runs, so reading it there would cache the
+     * startup sentinel and pause every animation until the mod was reloaded.
+     */
+    reducedMotionMediaQuery() {
       try {
         if (!this.reducedMotionQuery) {
           this.reducedMotionQuery =
             window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
         }
-        return this.reducedMotionQuery?.matches === true;
+        return this.reducedMotionQuery;
+      } catch (error) {
+        return null;
+      }
+    },
+
+    /** True when the browser has been asked to reduce motion. */
+    wantsReducedMotion() {
+      try {
+        return this.reducedMotionMediaQuery()?.matches === true;
       } catch (error) {
         return false;
+      }
+    },
+
+    /** Re-publish reduced-motion state when the OS or preference changes. */
+    watchReducedMotion() {
+      const query = this.reducedMotionMediaQuery();
+      if (!query || this.reducedMotionWatched) {
+        return;
+      }
+
+      this.reducedMotionWatched = true;
+      try {
+        this.listen(query, "change", () => {
+          if (this.destroyed) {
+            return;
+          }
+          this.applyPrefAttributes();
+          this.syncTabs();
+        });
+      } catch (error) {
+        this.warn("could not watch prefers-reduced-motion", error);
       }
     },
 

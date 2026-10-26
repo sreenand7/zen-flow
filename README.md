@@ -209,7 +209,7 @@ Sine reads `preferences.json` from the installed copy. Update or reinstall the m
 
 - **Zen Browser** only. Zen Flow is built for Zen's chrome, not plain Firefox, and declares `"fork": ["zen"]` in its manifest.
 - **Firefox 128+**, for `light-dark()` and registered custom properties.
-- Checked against the Zen `dev` source and the installed 1.23.4b build: the tab `busy`/`progress` attributes, `zen-newtab`, `zen-empty-tab`, `zen-has-empty-tab`, `zen-welcome-stage`, `#zen-loading-progress-bar`, `#tabbrowser-tabbox`, `#tabbrowser-tabpanels` and `window.gReduceMotion`. Advanced History uses the public Places query API (`nsINavHistoryQuery` / `nsINavHistoryQueryOptions`), `SessionStore`, and `formatURIStringForDisplay` — the same platform APIs Zen's Library builds on. The exact selectors and where each one comes from are listed under [Zen internals](#zen-internals).
+- Checked against the Zen `dev` source and the installed 1.23.4b build: the tab `busy`/`progress` attributes, `zen-newtab`, `zen-empty-tab`, `zen-has-empty-tab`, `zen-welcome-stage`, `#zen-loading-progress-bar`, `#tabbrowser-tabbox`, `#tabbrowser-tabpanels` and the live `prefers-reduced-motion` media query. Advanced History uses the public Places query API (`nsINavHistoryQuery` / `nsINavHistoryQueryOptions`), `SessionStore`, and `formatURIStringForDisplay` — the same platform APIs Zen's Library builds on. The exact selectors and where each one comes from are listed under [Zen internals](#zen-internals).
 
 ### Known limitations
 
@@ -228,6 +228,7 @@ Sine reads `preferences.json` from the installed copy. Update or reinstall the m
 
 - **Loading state** comes from the tab's own `busy` and `progress` attributes, the same test Zen's `ZenProgressBar` uses. A single `MutationObserver` watches those two attributes (plus `zen-empty-tab`) on the tab strip; `TabSelect`, `TabOpen` and `TabClose` cover structural changes. There is no timer and no progress API, which is why a failed load or a redirect cannot leave the bar or the zoom stuck.
 - **Visuals** are entirely CSS. The script only publishes state: `zen-flow-loading` on tabs, `data-active` on the bar, `zen-flow-page-zoom` on the content panels, and `zen-flow-*` attributes / custom properties on `:root`.
+- **Reduced motion** is read from the live `prefers-reduced-motion` media query and watched for changes. Firefox's `window.gReduceMotion` getter is not used: it is initialised to `true` during startup and only refreshed from the same query by a browser-window idle task, which runs after Sine has imported the mod. Trusting it would pause every animation on a fresh start until the mod was reloaded.
 - **Page zoom** follows the selected tab only. While it is loading, the content container gets `zen-flow-page-zoom="true"`; when the load ends, the value becomes `"settle"` and the CSS eases the transform back to `1`. A `transitionend` listener removes the attribute, with a 500 ms fallback timer in case the transition never starts. Switching to a tab that is not loading clears it immediately, and reloading during the settling phase returns to `"true"`. Reduced motion skips the whole state machine.
 - **Advanced History** builds its modal on first use. History rows come from bounded, synchronous Places queries: `RESULTS_AS_VISIT` for exact visit timestamps in Date mode, `RESULTS_AS_URI` for the page-level sorts. Domain filters use `domainIsHost = false` and then confirm the host with a label-aware post-check. Closed tabs are read from `SessionStore`. The panel debounces typing, keeps no database observers, and renders every string with `textContent`.
 - **The clock** has one timer, armed for the next minute boundary and stopped completely while no clock is on screen. It is injected into the new-tab page when that document is reachable, and rendered as a chrome overlay otherwise.
@@ -280,7 +281,7 @@ node -e "JSON.parse(require('fs').readFileSync('theme.json')); JSON.parse(requir
 | `:root[zen-welcome-stage]` | Zen's first-run screen | `ZenWelcome.mjs` |
 | `#zen-loading-progress-bar` | Zen's own loading bar | `zen-single-components.css` |
 | `#tabbrowser-tabbox`, `#tabbrowser-tabpanels` | The web content area; the zoom only touches `#tabbrowser-tabpanels` | Firefox |
-| `window.gReduceMotion` | Reduced-motion state | Zen, backed by `ui.prefersReducedMotion` |
+| `window.matchMedia("(prefers-reduced-motion: reduce)")` | Reduced-motion state, read live and watched for changes | Firefox media query; the same source as the CSS fallback and `ui.prefersReducedMotion` |
 | `.tab-background::after` | Tab outline | Free: Zen only uses `::before` in `vertical-tabs.css`, and Firefox uses neither. |
 | `nsINavHistoryQuery`, `nsINavHistoryQueryOptions` | History queries, date bounds, result type, sorting | Places' public query API |
 | `RESULTS_AS_VISIT`, `RESULTS_AS_URI` | Exact visit rows vs page-level rows | Places' public query API |
