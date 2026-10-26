@@ -3,7 +3,7 @@
   "name": "Zen Flow",
   "description": "A slim gradient loading bar, a subtle page-load zoom, pulsing loading tabs, a blurred URL-bar backdrop, a live new-tab clock, and a standalone Advanced History panel with date, site and closed-tab filters.",
   "author": "sreenand7",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "style": {
     "chrome": "userChrome.css",
     "content": "userContent.css"
